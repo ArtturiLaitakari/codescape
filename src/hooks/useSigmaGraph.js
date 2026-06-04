@@ -25,19 +25,25 @@ function withAlpha(hex, alpha) {
   return `#${base}${a}`
 }
 
+// Impact zone depth → color: selected=gold, direct=orange, 2nd=amber, 3+=pale
+const IMPACT_COLORS = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
+function impactColor(depth) {
+  return IMPACT_COLORS[Math.min(depth, IMPACT_COLORS.length - 1)]
+}
+
 /**
  * Manages a Sigma graph instance tied to a DOM container.
  * Handles graph construction, layout, zoom-spread, and cleanup.
  *
  * @param {React.RefObject} containerRef - ref to the Sigma mount element
- * @param {{ onEnterNode, onLeaveNode, onReady }} callbacks
+ * @param {{ onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus }} callbacks
  * @returns {{ load: (nodes, edges, rootKey) => void }}
  */
-export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady }) {
+export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus }) {
   const sigmaRef = useRef(null)
   // Mutable ref so nodeReducer/edgeReducer always see the current value without
   // needing to recreate the Sigma instance.
-  const focusRef = useRef(null)  // null | { node, neighbors: Set<string> }
+  const focusRef = useRef(null)  // null | { node, neighbors: Set<string>, impactZone: Map|null }
 
   const destroy = useCallback(() => {
     sigmaRef.current?.kill()
@@ -47,7 +53,7 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
 
   useEffect(() => () => destroy(), [destroy])
 
-  const load = useCallback((nodes, edges, rootKey = '__root__', extraEdges = []) => {
+  const load = useCallback((nodes, edges, rootKey = '__root__', extraEdges = []) => {  // eslint-disable-line
     destroy()
 
     const graph = new Graph({ type: 'directed' })
@@ -96,9 +102,23 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
         const result = { ...data, size: Math.min(data.size * scale, maxGraphSize) }
 
         const focus = focusRef.current
-        if (focus && node !== focus.node && !focus.neighbors.has(node)) {
-          result.color = withAlpha(data.color, 0.2)
-          result.labelColor = '#1e3a5f'
+        if (focus) {
+          if (focus.impactZone) {
+            // Impact mode: color each node by its depth in the impact zone
+            const depth = focus.impactZone.get(node)
+            if (depth === undefined) {
+              result.color = withAlpha(data.color, 0.2)
+              result.labelColor = '#1e3a5f'
+            } else {
+              const c = impactColor(depth)
+              result.color = c
+              result.labelColor = c
+            }
+          } else if (node !== focus.node && !focus.neighbors.has(node)) {
+            // Normal neighbor mode: dim unconnected nodes
+            result.color = withAlpha(data.color, 0.2)
+            result.labelColor = '#1e3a5f'
+          }
         }
         return result
       },
@@ -107,6 +127,11 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
         if (!focus) return data
         const src = graph.source(edge)
         const tgt = graph.target(edge)
+        if (focus.impactZone) {
+          // Show only edges where both endpoints are in the impact zone
+          if (!focus.impactZone.has(src) || !focus.impactZone.has(tgt)) return { ...data, hidden: true }
+          return data
+        }
         const connected = src === focus.node || tgt === focus.node
         // WebGL edge renderer ignores hex alpha — hide inactive edges entirely
         if (!connected) return { ...data, hidden: true }
@@ -134,17 +159,22 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
     sigma.on('clickNode', ({ node }) => {
       if (focusRef.current?.node === node) {
         focusRef.current = null
+        onClearFocus?.()
       } else {
-        const neighbors = new Set([
-          ...graph.neighbors(node),          // undirected convenience — includes in+out
-        ])
-        focusRef.current = { node, neighbors }
+        if (getImpactZone) {
+          const impactZone = getImpactZone(node)   // Map<key, depth> returned by caller
+          focusRef.current = { node, neighbors: new Set(impactZone.keys()), impactZone }
+        } else {
+          const neighbors = new Set(graph.neighbors(node))
+          focusRef.current = { node, neighbors, impactZone: null }
+        }
       }
       sigma.refresh()
     })
     sigma.on('clickStage', () => {
       if (focusRef.current) {
         focusRef.current = null
+        onClearFocus?.()
         sigma.refresh()
       }
     })
@@ -153,7 +183,7 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
     sigma.on('leaveNode', () => onLeaveNode?.())
 
     onReady?.(graph.order)
-  }, [containerRef, destroy, onEnterNode, onLeaveNode, onReady])
+  }, [containerRef, destroy, onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus])
 
   return { load }
 }

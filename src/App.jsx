@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import FileMap from './components/FileMap.jsx'
 import DependencyHeatmap from './components/DependencyHeatmap.jsx'
+import ChangeImpactMap from './components/ChangeImpactMap.jsx'
 
 const VIEWS = [
   { id: 'filemap', label: 'Tiedostokartta' },
   { id: 'heatmap', label: 'Riippuvuuslämpökartta' },
+  { id: 'impact', label: 'Muutosvaikutuskartta' },
 ]
 
 export default function App() {
@@ -18,6 +20,7 @@ export default function App() {
 
       {activeView === 'filemap' && <FileMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} />}
       {activeView === 'heatmap' && <DependencyHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} />}
+      {activeView === 'impact' && <ChangeImpactMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} />}
     </div>
   )
 }
