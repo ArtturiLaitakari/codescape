@@ -3,8 +3,9 @@ import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { fanInColor, fanInSize, HEATMAP_LEGEND_STOPS } from '../lib/heatmap-colors.js'
 import { t, tf } from '../lib/i18n.js'
+import { NodeSearchBar } from './NodeSearchBar.jsx'
 
-const HEADER_H = 72
+const HEADER_H = 56
 
 export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi' }) {
   const containerRef = useRef(null)
@@ -18,7 +19,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
   const onLeaveNode = useCallback(() => setHovered(null), [])
   const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
 
-  const { load } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady })
+  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
@@ -86,6 +87,8 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
         inputValue={inputValue}
         activeRoot={activeRoot}
         lang={lang}
+        getNodes={getNodes}
+        setFilter={setFilter}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
         onReset={handleReset}
@@ -101,7 +104,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, onInputChange, onSubmit, onReset }) {
+function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   return (
     <div style={styles.header}>
@@ -133,6 +136,8 @@ function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, onInpu
             {t('reset', lang)}
           </button>
         )}
+        <div style={{ width: 1, background: '#334155', alignSelf: 'stretch', margin: '0 4px', flexShrink: 0 }} />
+        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#ef4444' />
       </form>
     </div>
   )
@@ -189,26 +194,26 @@ const styles = {
     background: 'rgba(15,23,42,0.9)',
     borderBottom: '1px solid #1e293b', backdropFilter: 'blur(6px)',
   },
-  headerTop: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' },
+  headerTop: { display: 'flex', alignItems: 'center', gap: 12, padding: '6px 12px' },
   title: { color: '#ef4444', fontFamily: 'monospace', fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap' },
   subtitle: { color: '#475569', fontSize: 12 },
   statusText: { fontSize: 12 },
-  pathRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px 10px' },
+  pathRow: { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 12px 6px' },
   folderIcon: { color: '#475569', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap' },
   pathInput: {
-    flex: 1, background: '#1e293b', border: '1px solid #334155',
-    borderRadius: 6, padding: '5px 10px', fontFamily: 'monospace',
-    fontSize: 12, color: '#e2e8f0', outline: 'none',
+    flex: 1, minWidth: 0, background: '#1e293b', border: '1px solid #334155',
+    borderRadius: 6, padding: '3px 8px', fontFamily: 'monospace',
+    fontSize: 11, color: '#e2e8f0', outline: 'none',
   },
   submitBtn: {
     background: '#ef4444', border: 'none', borderRadius: 6,
-    padding: '5px 14px', color: '#fff', fontFamily: 'monospace',
-    fontSize: 12, whiteSpace: 'nowrap',
+    padding: '3px 10px', color: '#fff', fontFamily: 'monospace',
+    fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0,
   },
   resetBtn: {
     background: 'transparent', border: '1px solid #334155', borderRadius: 6,
-    padding: '5px 14px', color: '#94a3b8', fontFamily: 'monospace',
-    fontSize: 12, whiteSpace: 'nowrap',
+    padding: '3px 10px', color: '#94a3b8', fontFamily: 'monospace',
+    fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0,
   },
   tooltip: {
     position: 'absolute', bottom: 16, left: 16, zIndex: 10,

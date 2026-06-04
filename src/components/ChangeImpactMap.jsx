@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { t, tf } from '../lib/i18n.js'
+import { NodeSearchBar } from './NodeSearchBar.jsx'
 
-const HEADER_H = 72
+const HEADER_H = 56
 
 // Legend entries are functions of lang so they update when language switches
 const FILE_LEGEND = (lang) => [
@@ -82,7 +83,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
 
   const onClearFocus = useCallback(() => { setSelectedImpact(null); setSelectMode(null) }, [])
 
-  const { load } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus })
+  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
@@ -169,6 +170,8 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
         selectedImpact={selectedImpact}
         selectMode={selectMode}
         lang={lang}
+        getNodes={getNodes}
+        setFilter={setFilter}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
         onReset={handleReset}
@@ -184,7 +187,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, onInputChange, onSubmit, onReset }) {
+function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   const name = selectedImpact?.node.split('/').pop() ?? ''
   const statusMsg = selectedImpact
@@ -226,6 +229,8 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
             {t('reset', lang)}
           </button>
         )}
+        <div style={{ width: 1, background: '#334155', alignSelf: 'stretch', margin: '0 4px', flexShrink: 0 }} />
+        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#22c55e' />
       </form>
     </div>
   )
@@ -276,26 +281,26 @@ const styles = {
     background: 'rgba(15,23,42,0.9)',
     borderBottom: '1px solid #1e293b', backdropFilter: 'blur(6px)',
   },
-  headerTop: { display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' },
+  headerTop: { display: 'flex', alignItems: 'center', gap: 12, padding: '6px 12px' },
   title: { color: '#22c55e', fontFamily: 'monospace', fontWeight: 700, fontSize: 15, whiteSpace: 'nowrap' },
   subtitle: { color: '#475569', fontSize: 12 },
   statusText: { fontSize: 12 },
-  pathRow: { display: 'flex', alignItems: 'center', gap: 8, padding: '6px 16px 10px' },
+  pathRow: { display: 'flex', alignItems: 'center', gap: 6, padding: '3px 12px 6px' },
   folderIcon: { color: '#475569', fontFamily: 'monospace', fontSize: 12, whiteSpace: 'nowrap' },
   pathInput: {
-    flex: 1, background: '#1e293b', border: '1px solid #334155',
-    borderRadius: 6, padding: '5px 10px', fontFamily: 'monospace',
-    fontSize: 12, color: '#e2e8f0', outline: 'none',
+    flex: 1, minWidth: 0, background: '#1e293b', border: '1px solid #334155',
+    borderRadius: 6, padding: '3px 8px', fontFamily: 'monospace',
+    fontSize: 11, color: '#e2e8f0', outline: 'none',
   },
   submitBtn: {
     background: '#22c55e', border: 'none', borderRadius: 6,
-    padding: '5px 14px', color: '#0f172a', fontFamily: 'monospace',
-    fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap',
+    padding: '3px 10px', color: '#0f172a', fontFamily: 'monospace',
+    fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', flexShrink: 0,
   },
   resetBtn: {
     background: 'transparent', border: '1px solid #334155', borderRadius: 6,
-    padding: '5px 14px', color: '#94a3b8', fontFamily: 'monospace',
-    fontSize: 12, whiteSpace: 'nowrap',
+    padding: '3px 10px', color: '#94a3b8', fontFamily: 'monospace',
+    fontSize: 11, whiteSpace: 'nowrap', flexShrink: 0,
   },
   tooltip: {
     position: 'absolute', bottom: 16, left: 16, zIndex: 10,

@@ -41,14 +41,21 @@ function impactColor(depth) {
  */
 export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus }) {
   const sigmaRef = useRef(null)
+  const graphRef = useRef(null)
+  const nodesRef = useRef([])
   // Mutable ref so nodeReducer/edgeReducer always see the current value without
   // needing to recreate the Sigma instance.
   const focusRef = useRef(null)  // null | { node, neighbors: Set<string>, impactZone: Map|null }
+  const lastFocusTimeRef = useRef(0)  // guard: ignore clickStage fired right after focusNode
+  const filterRef = useRef(null)  // null | Set<string> — keys that match the search query
 
   const destroy = useCallback(() => {
     sigmaRef.current?.kill()
     sigmaRef.current = null
+    graphRef.current = null
+    nodesRef.current = []
     focusRef.current = null
+    filterRef.current = null
   }, [])
 
   useEffect(() => () => destroy(), [destroy])
@@ -78,6 +85,13 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
 
     radialTreeLayout(graph, rootKey)
 
+    // Snapshot for search / programmatic focus
+    graphRef.current = graph
+    nodesRef.current = []
+    graph.forEachNode((key, attrs) => {
+      nodesRef.current.push({ key, label: attrs.label, kind: attrs.kind, ext: attrs.ext })
+    })
+
     // Add extra edges (e.g. import edges) after layout — they may form cycles
     extraEdges.forEach(({ source, target }) => {
       if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
@@ -102,6 +116,7 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
         const result = { ...data, size: Math.min(data.size * scale, maxGraphSize) }
 
         const focus = focusRef.current
+        const filter = filterRef.current
         if (focus) {
           if (focus.impactZone) {
             // Impact mode: color each node by its depth in the impact zone
@@ -119,22 +134,32 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
             result.color = withAlpha(data.color, 0.2)
             result.labelColor = '#1e3a5f'
           }
+        } else if (filter && !filter.has(node)) {
+          // Search filter mode: dim nodes that don't match the query
+          result.color = withAlpha(data.color, 0.15)
+          result.labelColor = '#1e3a5f'
         }
         return result
       },
       edgeReducer: (edge, data) => {
         const focus = focusRef.current
-        if (!focus) return data
+        const filter = filterRef.current
+        if (!focus && !filter) return data
         const src = graph.source(edge)
         const tgt = graph.target(edge)
-        if (focus.impactZone) {
-          // Show only edges where both endpoints are in the impact zone
-          if (!focus.impactZone.has(src) || !focus.impactZone.has(tgt)) return { ...data, hidden: true }
+        if (focus) {
+          if (focus.impactZone) {
+            // Show only edges where both endpoints are in the impact zone
+            if (!focus.impactZone.has(src) || !focus.impactZone.has(tgt)) return { ...data, hidden: true }
+            return data
+          }
+          const connected = src === focus.node || tgt === focus.node
+          // WebGL edge renderer ignores hex alpha — hide inactive edges entirely
+          if (!connected) return { ...data, hidden: true }
           return data
         }
-        const connected = src === focus.node || tgt === focus.node
-        // WebGL edge renderer ignores hex alpha — hide inactive edges entirely
-        if (!connected) return { ...data, hidden: true }
+        // Search filter mode: hide edges where neither endpoint matches
+        if (!filter.has(src) && !filter.has(tgt)) return { ...data, hidden: true }
         return data
       },
     })
@@ -172,6 +197,9 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
       sigma.refresh()
     })
     sigma.on('clickStage', () => {
+      // Ignore stage clicks that arrive right after a programmatic focusNode() call
+      // (the dropdown closes mid-click, causing mouseup/click to land on the canvas)
+      if (Date.now() - lastFocusTimeRef.current < 300) return
       if (focusRef.current) {
         focusRef.current = null
         onClearFocus?.()
@@ -185,5 +213,31 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
     onReady?.(graph.order)
   }, [containerRef, destroy, onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus])
 
-  return { load }
+  const getNodes = useCallback(() => nodesRef.current, [])
+
+  const setFilter = useCallback((keys) => {
+    const sigma = sigmaRef.current
+    filterRef.current = keys  // Set<string> | null
+    sigma?.refresh()
+  }, [])
+
+  const focusNode = useCallback((key) => {
+    const sigma = sigmaRef.current
+    const graph = graphRef.current
+    if (!sigma || !graph || !graph.hasNode(key)) return
+    if (getImpactZone) {
+      const impactZone = getImpactZone(key)
+      focusRef.current = { node: key, neighbors: new Set(impactZone.keys()), impactZone }
+    } else {
+      const neighbors = new Set(graph.neighbors(key))
+      focusRef.current = { node: key, neighbors, impactZone: null }
+    }
+    lastFocusTimeRef.current = Date.now()
+    sigma.refresh()
+    const x = graph.getNodeAttribute(key, 'x')
+    const y = graph.getNodeAttribute(key, 'y')
+    sigma.getCamera().animate({ x, y, ratio: Math.min(sigma.getCamera().ratio, 0.8) }, { duration: 350 })
+  }, [getImpactZone])
+
+  return { load, focusNode, getNodes, setFilter }
 }

@@ -56,6 +56,9 @@ const T = {
 
     // ── Shared legend entries ─────────────────────────────────────────────────
     l_not_selected: 'Ei valittu',
+
+    // ── Search ────────────────────────────────────────────────────────────
+    search_placeholder: 'Hae tiedostoa tai kansiota…',
   },
 
   en: {
@@ -113,6 +116,9 @@ const T = {
 
     // ── Shared legend entries ─────────────────────────────────────────────────
     l_not_selected: 'Not selected',
+
+    // ── Search ────────────────────────────────────────────────────────────
+    search_placeholder: 'Search file or folder…',
   },
 
   sv: {
@@ -170,6 +176,9 @@ const T = {
 
     // ── Shared legend entries ─────────────────────────────────────────────────
     l_not_selected: 'Ej vald',
+
+    // ── Search ────────────────────────────────────────────────────────────
+    search_placeholder: 'Sök fil eller mapp…',
   },
 }
 
