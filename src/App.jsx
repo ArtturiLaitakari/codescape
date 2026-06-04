@@ -18,7 +18,7 @@ export default function App() {
   const [activeView, setActiveView] = useState('filemap')
   // Shared across views so switching tabs doesn't forget the loaded folder
   const [sharedRoot, setSharedRoot] = useState(null)
-  const [lang, setLang] = useState('fi')
+  const [lang, setLang] = useState('en')
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>

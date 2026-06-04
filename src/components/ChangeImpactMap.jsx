@@ -32,6 +32,8 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
 
   // Reverse adjacency: target → Set<source>  (who imports each file)
   const reverseAdjRef = useRef({})
+  // Forward import adjacency: source → Set<target>  (what each file imports)
+  const forwardImportRef = useRef({})
   // Forward tree adjacency: parent → Set<child>  (directory containment)
   const forwardTreeRef = useRef({})
   // Node attributes: key → attrs
@@ -39,7 +41,11 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
   // 'file' | 'dir' — mode of the current selection
   const [selectMode, setSelectMode] = useState(null)
 
-  const onEnterNode = useCallback((key, attrs) => setHovered({ key, ...attrs }), [])
+  const onEnterNode = useCallback((key, attrs) => {
+    const importers = [...(reverseAdjRef.current[key] ?? [])].sort()
+    const imports = [...(forwardImportRef.current[key] ?? [])].sort()
+    setHovered({ key, ...attrs, importers, imports })
+  }, [])
   const onLeaveNode = useCallback(() => setHovered(null), [])
   const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
 
@@ -104,12 +110,16 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
         onRootChange?.(body.root)
 
         // Build reverse adjacency: target → Set<source>  (who imports each file)
-        const rev = {}
+        // and forward import adjacency: source → Set<target>  (what each file imports)
+        const rev = {}, fwdImport = {}
         for (const { source, target } of body.importEdges) {
           if (!rev[target]) rev[target] = new Set()
           rev[target].add(source)
+          if (!fwdImport[source]) fwdImport[source] = new Set()
+          fwdImport[source].add(target)
         }
         reverseAdjRef.current = rev
+        forwardImportRef.current = fwdImport
 
         // Build forward tree adjacency: parent → Set<child>  (directory containment)
         const fwd = {}
@@ -183,7 +193,13 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
 
       <div ref={containerRef} style={{ position: 'absolute', inset: 0, paddingTop: HEADER_H }} />
 
-      {hovered && <HoverTooltip hovered={hovered} lang={lang} />}
+      {hovered && (
+        <HoverTooltip
+          key={hovered.key}
+          hovered={hovered}
+          lang={lang}
+        />
+      )}
       {status === 'ready' && <ImpactLegend selectMode={selectMode} lang={lang} />}
     </div>
   )
@@ -202,7 +218,7 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
   return (
     <div style={styles.header}>
       <div style={styles.headerTop}>
-        <span style={styles.title}>koodikartta</span>
+        <span style={styles.title}>Codespace</span>
         <span style={styles.subtitle}>{t('subtitle_impact', lang)}</span>
         {statusMsg ? (
           <span style={{ ...styles.statusText, marginLeft: 'auto', color: '#fbbf24' }}>{statusMsg}</span>
@@ -240,8 +256,12 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
   )
 }
 
+const MAX_LIST = 10
+
 function HoverTooltip({ hovered, lang }) {
   const isFile = hovered.kind === 'file'
+  const importers = hovered.importers ?? []
+  const imports = hovered.imports ?? []
   return (
     <div style={styles.tooltip}>
       <div style={{ color: hovered.color ?? '#e2e8f0', fontWeight: 700 }}>{hovered.label}</div>
@@ -251,6 +271,28 @@ function HoverTooltip({ hovered, lang }) {
           : hovered.kind}
       </div>
       <div style={{ color: '#475569', marginTop: 2, maxWidth: 280, wordBreak: 'break-all' }}>{hovered.key}</div>
+      {isFile && (importers.length > 0 || imports.length > 0) && (
+        <div style={{ marginTop: 8, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+          {importers.length > 0 && (
+            <div>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>{t('importers', lang).toUpperCase()} ({importers.length})</div>
+              {importers.slice(0, MAX_LIST).map(f => (
+                <div key={f} style={{ color: '#94a3b8', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>{f}</div>
+              ))}
+              {importers.length > MAX_LIST && <div style={{ color: '#475569', fontSize: 10 }}>…</div>}
+            </div>
+          )}
+          {imports.length > 0 && (
+            <div style={{ marginTop: importers.length > 0 ? 8 : 0 }}>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>{t('imports', lang).toUpperCase()} ({imports.length})</div>
+              {imports.slice(0, MAX_LIST).map(f => (
+                <div key={f} style={{ color: '#94a3b8', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>{f}</div>
+              ))}
+              {imports.length > MAX_LIST && <div style={{ color: '#475569', fontSize: 10 }}>…</div>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

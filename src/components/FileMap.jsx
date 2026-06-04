@@ -92,7 +92,7 @@ function Header({ status, nodeCount, inputValue, activeRoot, lang, getNodes, set
   return (
     <div style={styles.header}>
       <div style={styles.headerTop}>
-        <span style={styles.title}>koodikartta</span>
+        <span style={styles.title}>Codespace</span>
         <span style={styles.subtitle}>{t('subtitle_filemap', lang)}</span>
         <span style={{ ...styles.statusText, marginLeft: 'auto', color: status.startsWith('error') ? '#f87171' : '#64748b' }}>
           {status === 'ready' ? tf('nodes_filemap', { count: nodeCount }, lang)

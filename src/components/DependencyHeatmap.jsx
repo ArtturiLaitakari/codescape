@@ -9,13 +9,19 @@ const HEADER_H = 56
 
 export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi' }) {
   const containerRef = useRef(null)
+  const reverseAdjRef = useRef({})
+  const forwardImportRef = useRef({})
   const [status, setStatus] = useState('loading')
   const [hovered, setHovered] = useState(null)
   const [nodeCount, setNodeCount] = useState(0)
   const [inputValue, setInputValue] = useState(sharedRoot ?? '')
   const [activeRoot, setActiveRoot] = useState(null)
 
-  const onEnterNode = useCallback((key, attrs) => setHovered({ key, ...attrs }), [])
+  const onEnterNode = useCallback((key, attrs) => {
+    const importers = [...(reverseAdjRef.current[key] ?? [])].sort()
+    const imports = [...(forwardImportRef.current[key] ?? [])].sort()
+    setHovered({ key, ...attrs, importers, imports })
+  }, [])
   const onLeaveNode = useCallback(() => setHovered(null), [])
   const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
 
@@ -37,6 +43,17 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
         setActiveRoot(body.root)
         setInputValue(body.root)
         onRootChange?.(body.root)
+
+        // Build reverse + forward import adjacency for tooltip file lists
+        const rev = {}, fwdImport = {}
+        for (const { source, target } of body.importEdges) {
+          if (!rev[target]) rev[target] = new Set()
+          rev[target].add(source)
+          if (!fwdImport[source]) fwdImport[source] = new Set()
+          fwdImport[source].add(target)
+        }
+        reverseAdjRef.current = rev
+        forwardImportRef.current = fwdImport
 
         // Compute max fanIn so we can normalise the colour scale
         const maxFanIn = body.nodes.reduce((m, n) => Math.max(m, n.attributes.fanIn ?? 0), 0)
@@ -100,7 +117,13 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
 
       <div ref={containerRef} style={{ position: 'absolute', inset: 0, paddingTop: HEADER_H }} />
 
-      {hovered && <HoverTooltip hovered={hovered} />}
+      {hovered && (
+        <HoverTooltip
+          key={hovered.key}
+          hovered={hovered}
+          lang={lang}
+        />
+      )}
       {status === 'ready' && <HeatmapLegend />}
     </div>
   )
@@ -113,7 +136,7 @@ function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, getNod
   return (
     <div style={styles.header}>
       <div style={styles.headerTop}>
-        <span style={styles.title}>koodikartta</span>
+        <span style={styles.title}>Codespace</span>
         <span style={styles.subtitle}>{t('subtitle_heatmap', lang)}</span>
         <span style={{ ...styles.statusText, marginLeft: 'auto', color: status.startsWith('error') ? '#f87171' : '#64748b' }}>
           {status === 'ready' ? tf('nodes_heatmap', { count: nodeCount }, lang)
@@ -147,17 +170,43 @@ function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, getNod
   )
 }
 
-function HoverTooltip({ hovered }) {
+const MAX_LIST = 10
+
+function HoverTooltip({ hovered, lang }) {
   const isFile = hovered.kind === 'file'
+  const importers = hovered.importers ?? []
+  const imports = hovered.imports ?? []
   return (
     <div style={styles.tooltip}>
       <div style={{ color: hovered.color ?? '#e2e8f0', fontWeight: 700 }}>{hovered.label}</div>
       <div style={{ color: '#64748b', marginTop: 2 }}>
         {isFile
-          ? `fan-in: ${hovered.fanIn ?? 0}  ·  fan-out: ${hovered.fanOut ?? 0}  ·  .${hovered.ext}`
+          ? `${t('importers', lang)}: ${hovered.fanIn ?? 0}  ·  ${t('imports', lang)}: ${hovered.fanOut ?? 0}  ·  .${hovered.ext}`
           : hovered.kind}
       </div>
       <div style={{ color: '#475569', marginTop: 2, maxWidth: 280, wordBreak: 'break-all' }}>{hovered.key}</div>
+      {isFile && (importers.length > 0 || imports.length > 0) && (
+        <div style={{ marginTop: 8, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+          {importers.length > 0 && (
+            <div>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>{t('importers', lang).toUpperCase()} ({importers.length})</div>
+              {importers.slice(0, MAX_LIST).map(f => (
+                <div key={f} style={{ color: '#94a3b8', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>{f}</div>
+              ))}
+              {importers.length > MAX_LIST && <div style={{ color: '#475569', fontSize: 10 }}>…</div>}
+            </div>
+          )}
+          {imports.length > 0 && (
+            <div style={{ marginTop: importers.length > 0 ? 8 : 0 }}>
+              <div style={{ color: '#64748b', fontSize: 10, marginBottom: 3 }}>{t('imports', lang).toUpperCase()} ({imports.length})</div>
+              {imports.slice(0, MAX_LIST).map(f => (
+                <div key={f} style={{ color: '#94a3b8', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 300 }}>{f}</div>
+              ))}
+              {imports.length > MAX_LIST && <div style={{ color: '#475569', fontSize: 10 }}>…</div>}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
