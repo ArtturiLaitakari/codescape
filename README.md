@@ -4,7 +4,7 @@ Interaktiivinen, monitasoinen visualisointityökalu koodikannan rakenteen, riipp
 
 ---
 
-## 🎯 Vision
+## 🎯 Visio
 
 Suuri koodikanta on musta laatikko. Tiedostolista ei kerro mistä asiat alkavat, mihin ne johtavat, kuka omistaa ne tai mikä hajoaa kun jotain muutetaan. **Koodikartta** avaa tämän laatikon näyttämällä koodin **eläväksi graafiksi**, jota voi tarkastella eri linsseillä.
 

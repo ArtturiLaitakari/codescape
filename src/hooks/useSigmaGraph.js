@@ -9,13 +9,21 @@ const SIGMA_DEFAULTS = {
   defaultEdgeColor: '#334155',
   labelFont: 'monospace',
   labelSize: 11,
-  labelColor: { color: '#e2e8f0' },
+  // Read label color from node attribute so nodeReducer can override it per-node
+  labelColor: { attribute: 'labelColor' },
   minCameraRatio: 0.001,
   maxCameraRatio: 100,
 }
 
 const SPREAD_THRESHOLD = 0.05  // only recompute when zoom changes >5%
 const MAX_NODE_SCREEN_PX = 40  // node pixel cap regardless of zoom
+
+/** Append a 2-hex-digit alpha to a #rrggbb color (strips existing alpha first) */
+function withAlpha(hex, alpha) {
+  const base = hex.startsWith('#') ? hex.slice(1, 7) : hex.slice(0, 6)
+  const a = Math.round(alpha * 255).toString(16).padStart(2, '0')
+  return `#${base}${a}`
+}
 
 /**
  * Manages a Sigma graph instance tied to a DOM container.
@@ -27,15 +35,19 @@ const MAX_NODE_SCREEN_PX = 40  // node pixel cap regardless of zoom
  */
 export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady }) {
   const sigmaRef = useRef(null)
+  // Mutable ref so nodeReducer/edgeReducer always see the current value without
+  // needing to recreate the Sigma instance.
+  const focusRef = useRef(null)  // null | { node, neighbors: Set<string> }
 
   const destroy = useCallback(() => {
     sigmaRef.current?.kill()
     sigmaRef.current = null
+    focusRef.current = null
   }, [])
 
   useEffect(() => () => destroy(), [destroy])
 
-  const load = useCallback((nodes, edges, rootKey = '__root__') => {
+  const load = useCallback((nodes, edges, rootKey = '__root__', extraEdges = []) => {
     destroy()
 
     const graph = new Graph({ type: 'directed' })
@@ -44,12 +56,14 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
       graph.addNode(key, {
         ...attributes,
         x: 0, y: 0,
-        size: nodeSize(attributes),
-        color: nodeColor(attributes),
-        label: attributes.label,
+        // Preserve caller-supplied color/size (e.g. heatmap); fall back to defaults
+        color: attributes.color ?? nodeColor(attributes),
+        size: attributes.size ?? nodeSize(attributes),
+        labelColor: '#e2e8f0',
       })
     })
 
+    // Only tree edges used during layout — no cycles
     edges.forEach(({ source, target }) => {
       if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
         graph.addDirectedEdge(source, target, { color: '#334155', size: 1 })
@@ -57,6 +71,13 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
     })
 
     radialTreeLayout(graph, rootKey)
+
+    // Add extra edges (e.g. import edges) after layout — they may form cycles
+    extraEdges.forEach(({ source, target }) => {
+      if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
+        graph.addDirectedEdge(source, target, { color: '#475569', size: 0.5 })
+      }
+    })
 
     // Snapshot positions after layout — zoom-spread scales from these
     const base = {}
@@ -69,10 +90,27 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
 
     const sigma = new Sigma(graph, containerRef.current, {
       ...SIGMA_DEFAULTS,
-      nodeReducer: (_node, data) => {
+      nodeReducer: (node, data) => {
         const maxGraphSize = MAX_NODE_SCREEN_PX * cam.ratio
         const scale = Math.pow(1 / cam.ratio, 0.4)
-        return { ...data, size: Math.min(data.size * scale, maxGraphSize) }
+        const result = { ...data, size: Math.min(data.size * scale, maxGraphSize) }
+
+        const focus = focusRef.current
+        if (focus && node !== focus.node && !focus.neighbors.has(node)) {
+          result.color = withAlpha(data.color, 0.2)
+          result.labelColor = '#1e3a5f'
+        }
+        return result
+      },
+      edgeReducer: (edge, data) => {
+        const focus = focusRef.current
+        if (!focus) return data
+        const src = graph.source(edge)
+        const tgt = graph.target(edge)
+        const connected = src === focus.node || tgt === focus.node
+        // WebGL edge renderer ignores hex alpha — hide inactive edges entirely
+        if (!connected) return { ...data, hidden: true }
+        return data
       },
     })
     sigmaRef.current = sigma
@@ -90,6 +128,25 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady 
         graph.setNodeAttribute(n, 'y', base[n].y * spread)
       })
       sigma.refresh({ skipIndexation: false })
+    })
+
+    // Click node → focus; click same node or background → clear focus
+    sigma.on('clickNode', ({ node }) => {
+      if (focusRef.current?.node === node) {
+        focusRef.current = null
+      } else {
+        const neighbors = new Set([
+          ...graph.neighbors(node),          // undirected convenience — includes in+out
+        ])
+        focusRef.current = { node, neighbors }
+      }
+      sigma.refresh()
+    })
+    sigma.on('clickStage', () => {
+      if (focusRef.current) {
+        focusRef.current = null
+        sigma.refresh()
+      }
     })
 
     sigma.on('enterNode', ({ node }) => onEnterNode?.(node, graph.getNodeAttributes(node)))
