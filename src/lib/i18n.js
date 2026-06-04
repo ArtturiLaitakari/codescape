@@ -16,7 +16,7 @@ const T = {
     scanning:         'skannataan…',
     parsing_imports:  'parsitaan importteja…',
     nodes_filemap:    '{count} solmua · vieritä zoomataksesi · vedä panoroidaksesi',
-    nodes_heatmap:    '{count} solmua · fan-in lämpö · vieritä/vedä',
+    nodes_heatmap:    '{count} solmua · fan-in lämpö · klikkaa vaikutukseen',
     nodes_impact:     '{count} solmua · klikkaa tiedostoa tai kansiota',
 
     // ── FileMap tooltip ───────────────────────────────────────────────────────
@@ -76,7 +76,7 @@ const T = {
     scanning:        'scanning…',
     parsing_imports: 'parsing imports…',
     nodes_filemap:   '{count} nodes · scroll to zoom · drag to pan',
-    nodes_heatmap:   '{count} nodes · fan-in heat · scroll/drag',
+    nodes_heatmap:   '{count} nodes · fan-in heat · click for impact',
     nodes_impact:    '{count} nodes · click a file or folder',
 
     // ── FileMap tooltip ───────────────────────────────────────────────────────
@@ -136,7 +136,7 @@ const T = {
     scanning:        'söker igenom…',
     parsing_imports: 'analyserar importer…',
     nodes_filemap:   '{count} noder · scrolla för zoom · dra för att panorera',
-    nodes_heatmap:   '{count} noder · fan-in värme · scrolla/dra',
+    nodes_heatmap:   '{count} noder · fan-in värme · klicka för påverkan',
     nodes_impact:    '{count} noder · klicka på en fil eller mapp',
 
     // ── FileMap tooltip ───────────────────────────────────────────────────────

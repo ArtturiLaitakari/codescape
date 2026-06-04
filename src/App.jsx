@@ -1,7 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import FileMap from './components/FileMap.jsx'
 import DependencyHeatmap from './components/DependencyHeatmap.jsx'
-import ChangeImpactMap from './components/ChangeImpactMap.jsx'
 import { t } from './lib/i18n.js'
 
 const LANG_FLAGS = { fi: '🇫🇮', en: '🇬🇧', sv: '🇸🇪' }
@@ -11,7 +10,6 @@ const LANGS = ['fi', 'en', 'sv']
 const VIEWS = [
   { id: 'filemap', labelKey: 'tab_filemap' },
   { id: 'heatmap', labelKey: 'tab_heatmap' },
-  { id: 'impact',  labelKey: 'tab_impact'  },
 ]
 
 export default function App() {
@@ -26,7 +24,6 @@ export default function App() {
 
       {activeView === 'filemap' && <FileMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} />}
       {activeView === 'heatmap' && <DependencyHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} />}
-      {activeView === 'impact' && <ChangeImpactMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} />}
     </div>
   )
 }

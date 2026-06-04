@@ -7,6 +7,19 @@ import { NodeSearchBar } from './NodeSearchBar.jsx'
 
 const HEADER_H = 56
 
+const FILE_LEGEND = (lang) => [
+  { color: '#fbbf24', label: t('l_changed_file', lang) },
+  { color: '#f97316', label: t('l_direct_users', lang) },
+  { color: '#f59e0b', label: t('l_depth2', lang) },
+  { color: '#fde68a', label: t('l_depth3plus', lang) },
+]
+const DIR_LEGEND = (lang) => [
+  { color: '#fbbf24', label: t('l_selected_folder', lang) },
+  { color: '#f97316', label: t('l_direct_children', lang) },
+  { color: '#f59e0b', label: t('l_depth2_content', lang) },
+  { color: '#fde68a', label: t('l_deeper', lang) },
+]
+
 export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi' }) {
   const containerRef = useRef(null)
   const reverseAdjRef = useRef({})
@@ -16,6 +29,10 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
   const [nodeCount, setNodeCount] = useState(0)
   const [inputValue, setInputValue] = useState(sharedRoot ?? '')
   const [activeRoot, setActiveRoot] = useState(null)
+  const forwardTreeRef = useRef({})
+  const nodeAttrsRef = useRef({})
+  const [selectedImpact, setSelectedImpact] = useState(null)
+  const [selectMode, setSelectMode] = useState(null)
 
   const onEnterNode = useCallback((key, attrs) => {
     const importers = [...(reverseAdjRef.current[key] ?? [])].sort()
@@ -25,14 +42,52 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
   const onLeaveNode = useCallback(() => setHovered(null), [])
   const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
 
+  const getImpactZone = useCallback((startNode) => {
+    const attrs = nodeAttrsRef.current[startNode]
+    const isDir = attrs?.kind === 'dir' || attrs?.kind === 'dir-empty' || attrs?.kind === 'root'
+    const depths = new Map()
+    if (isDir) {
+      const fwd = forwardTreeRef.current
+      const queue = [[startNode, 0]]
+      while (queue.length) {
+        const [node, depth] = queue.shift()
+        if (depths.has(node)) continue
+        depths.set(node, depth)
+        for (const child of (fwd[node] ?? [])) {
+          if (!depths.has(child)) queue.push([child, depth + 1])
+        }
+      }
+      setSelectMode('dir')
+      setSelectedImpact({ node: startNode, count: depths.size - 1, mode: 'dir' })
+    } else {
+      const rev = reverseAdjRef.current
+      const queue = [[startNode, 0]]
+      while (queue.length) {
+        const [node, depth] = queue.shift()
+        if (depths.has(node)) continue
+        depths.set(node, depth)
+        for (const parent of (rev[node] ?? [])) {
+          if (!depths.has(parent)) queue.push([parent, depth + 1])
+        }
+      }
+      setSelectMode('file')
+      setSelectedImpact({ node: startNode, count: depths.size - 1, mode: 'file' })
+    }
+    return depths
+  }, [])
+
+  const onClearFocus = useCallback(() => { setSelectedImpact(null); setSelectMode(null) }, [])
+
   const searchResetRef = useRef(null)
   const onClickNode = useCallback(() => { searchResetRef.current?.() }, [])
 
-  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode })
+  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
     setHovered(null)
+    setSelectedImpact(null)
+    setSelectMode(null)
     let cancelled = false
     const url = targetPath ? `/api/depgraph?path=${encodeURIComponent(targetPath)}` : '/api/depgraph'
     fetch(url)
@@ -55,6 +110,19 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
         reverseAdjRef.current = rev
         forwardImportRef.current = fwdImport
 
+        // Build forward tree adjacency: parent → Set<child>  (directory containment)
+        const fwdTree = {}
+        for (const { source, target } of body.treeEdges) {
+          if (!fwdTree[source]) fwdTree[source] = new Set()
+          fwdTree[source].add(target)
+        }
+        forwardTreeRef.current = fwdTree
+
+        // Index node attributes for kind lookups in getImpactZone
+        const nodeAttrs = {}
+        for (const { key, attributes } of body.nodes) nodeAttrs[key] = attributes
+        nodeAttrsRef.current = nodeAttrs
+
         // Compute max fanIn so we can normalise the colour scale
         const maxFanIn = body.nodes.reduce((m, n) => Math.max(m, n.attributes.fanIn ?? 0), 0)
 
@@ -70,7 +138,9 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
               },
             }
           }
-          return { key, attributes: { ...attributes, color: nodeColor(attributes), size: nodeSize(attributes) } }
+          // Dirs: green so they're visually distinct from the cold-blue end of the heat scale
+          const dirColor = attributes.kind === 'dir' ? '#22c55e' : attributes.kind === 'dir-empty' ? '#166534' : nodeColor(attributes)
+          return { key, attributes: { ...attributes, color: dirColor, size: nodeSize(attributes) } }
         })
 
         // treeEdges only for layout (no cycles), importEdges added after
@@ -95,6 +165,8 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
   function handleReset() {
     setInputValue('')
     setActiveRoot(null)
+    setSelectedImpact(null)
+    setSelectMode(null)
     onRootChange?.(null)
     loadGraph('')
   }
@@ -106,6 +178,8 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
         nodeCount={nodeCount}
         inputValue={inputValue}
         activeRoot={activeRoot}
+        selectedImpact={selectedImpact}
+        selectMode={selectMode}
         lang={lang}
         getNodes={getNodes}
         setFilter={setFilter}
@@ -124,25 +198,35 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
           lang={lang}
         />
       )}
-      {status === 'ready' && <HeatmapLegend />}
+      {status === 'ready' && <HeatmapLegend selectMode={selectMode} lang={lang} />}
     </div>
   )
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
+function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
+  const name = selectedImpact?.node.split('/').pop() ?? ''
+  const statusMsg = selectedImpact
+    ? selectMode === 'dir'
+      ? tf(selectedImpact.count === 0 ? 'impact_dir_empty' : 'impact_dir_has', { name, count: selectedImpact.count }, lang)
+      : tf(selectedImpact.count === 0 ? 'impact_file_none' : 'impact_file_has', { name, count: selectedImpact.count }, lang)
+    : null
   return (
     <div style={styles.header}>
       <div style={styles.headerTop}>
         <span style={styles.title}>Codespace</span>
         <span style={styles.subtitle}>{t('subtitle_heatmap', lang)}</span>
-        <span style={{ ...styles.statusText, marginLeft: 'auto', color: status.startsWith('error') ? '#f87171' : '#64748b' }}>
-          {status === 'ready' ? tf('nodes_heatmap', { count: nodeCount }, lang)
-           : status === 'loading' ? t('parsing_imports', lang)
-           : status}
-        </span>
+        {statusMsg ? (
+          <span style={{ ...styles.statusText, marginLeft: 'auto', color: '#fbbf24' }}>{statusMsg}</span>
+        ) : (
+          <span style={{ ...styles.statusText, marginLeft: 'auto', color: status.startsWith('error') ? '#f87171' : '#64748b' }}>
+            {status === 'ready' ? tf('nodes_heatmap', { count: nodeCount }, lang)
+             : status === 'loading' ? t('parsing_imports', lang)
+             : status}
+          </span>
+        )}
       </div>
       <form onSubmit={onSubmit} style={styles.pathRow}>
         <span style={styles.folderIcon}>📁</span>
@@ -211,11 +295,31 @@ function HoverTooltip({ hovered, lang }) {
   )
 }
 
-function HeatmapLegend() {
+function HeatmapLegend({ selectMode, lang }) {
+  if (selectMode) {
+    const entries = (selectMode === 'dir' ? DIR_LEGEND : FILE_LEGEND)(lang)
+    const title = t(selectMode === 'dir' ? 'legend_folder_contents' : 'legend_impact_depth', lang)
+    return (
+      <div style={styles.legend}>
+        <div style={{ color: '#64748b', fontSize: 10, marginBottom: 7, letterSpacing: 1 }}>{title}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          {entries.map(({ color, label }) => (
+            <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: color, display: 'inline-block', flexShrink: 0 }} />
+              <span style={{ color: '#94a3b8', fontSize: 11 }}>{label}</span>
+            </div>
+          ))}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, borderTop: '1px solid #1e293b', paddingTop: 5 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#334155', display: 'inline-block', flexShrink: 0 }} />
+            <span style={{ color: '#475569', fontSize: 11 }}>{t('l_not_selected', lang)}</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
   return (
     <div style={styles.legend}>
       <div style={{ color: '#64748b', fontSize: 10, marginBottom: 5, letterSpacing: 1 }}>FAN-IN</div>
-      {/* Gradient bar */}
       <div style={{
         height: 8, borderRadius: 4, marginBottom: 6, width: 120,
         background: `linear-gradient(to right, ${HEATMAP_LEGEND_STOPS.map(s => s.color).join(', ')})`,
@@ -226,7 +330,8 @@ function HeatmapLegend() {
       </div>
       <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
         {[
-          { color: '#3b82f6', label: 'dir' },
+          { color: '#22c55e', label: 'dir' },
+          { color: '#166534', label: 'dir (empty)' },
           { color: '#8b5cf6', label: 'root' },
         ].map(({ color, label }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>

@@ -25,17 +25,21 @@ Radial tree of the directory structure. Every file and folder is a node; edges r
 - Search bar → dim non-matching nodes in-graph (no dropdown)
 
 ### Dependency Heatmap
-Import graph colored by fan-in (how many other files import this file). Red = highly depended-on, blue = rarely used.
+Import graph colored by fan-in (how many other files import this file). Directories are green; cold files are dark blue; hot files are red/amber.
 
+Two modes in one view:
+
+**Idle (no selection)** — fan-in heat coloring across the whole graph
 - Hover a node → shows fan-in, fan-out, file type, and full importer/import lists (up to 10 each)
-- Click a node → focus on its direct import neighborhood
 
-### Change Impact Map
-"If I change this file, what breaks?" Click a file to highlight the full reverse-import chain via BFS. Click a directory to highlight all files it contains.
+**Click a file** → BFS reverse-import chain: which files would be affected if this file changes
+- Depth 0 = the clicked file (gold), depth 1 = direct importers (orange), depth 2+ fade to pale yellow
+- Header shows `filename → N files affected`
 
-- Hover a node → shows importer/import counts and lists
-- Red nodes = orphan files (fan-in = 0, nothing imports them)
-- Two selection modes indicated in the legend: file impact chain vs. directory contents
+**Click a directory** → BFS forward-tree: all files contained in the directory
+- Legend switches to show folder-contents depth coloring
+
+Click the same node again or click the background to reset.
 
 ---
 
@@ -74,8 +78,7 @@ src/
     useSigmaGraph.js       # Sigma lifecycle, focus, search filter
   components/
     FileMap.jsx
-    DependencyHeatmap.jsx
-    ChangeImpactMap.jsx
+    DependencyHeatmap.jsx  # Heatmap + click-for-impact (combined view)
     NodeSearchBar.jsx
   lib/
     graph-colors.js        # Node colors by file extension
