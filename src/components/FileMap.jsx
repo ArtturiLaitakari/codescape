@@ -4,12 +4,12 @@ import { nodeColor, LEGEND } from '../lib/graph-colors.js'
 
 const HEADER_H = 72  // px — canvas offset so content isn't hidden under header
 
-export default function FileMap() {
+export default function FileMap({ sharedRoot, onRootChange }) {
   const containerRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [hovered, setHovered] = useState(null)
   const [nodeCount, setNodeCount] = useState(0)
-  const [inputValue, setInputValue] = useState('')
+  const [inputValue, setInputValue] = useState(sharedRoot ?? '')
   const [activeRoot, setActiveRoot] = useState(null)
 
   const onEnterNode = useCallback((key, attrs) => setHovered({ key, ...attrs }), [])
@@ -30,21 +30,30 @@ export default function FileMap() {
         if (body.error) throw new Error(body.error)
         setActiveRoot(body.root)
         setInputValue(body.root)
+        onRootChange?.(body.root)
         load(body.nodes, body.edges, '__root__')
       })
       .catch((e) => { if (!cancelled) setStatus(`error: ${e.message}`) })
     return () => { cancelled = true }
-  }, [load])
+  }, [load, onRootChange])
 
   useEffect(() => {
-    const cleanup = loadGraph('')
+    const cleanup = loadGraph(sharedRoot ?? '')
     return cleanup
-  }, [loadGraph])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []) // only on mount — sharedRoot is the initial value, not a dependency
 
   function handleSubmit(e) {
     e.preventDefault()
     const val = inputValue.trim()
     if (val) loadGraph(val)
+  }
+
+  function handleReset() {
+    setInputValue('')
+    setActiveRoot(null)
+    onRootChange?.(null)
+    loadGraph('')
   }
 
   return (
@@ -56,6 +65,7 @@ export default function FileMap() {
         activeRoot={activeRoot}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
+        onReset={handleReset}
       />
 
       <div ref={containerRef} style={{ position: 'absolute', inset: 0, paddingTop: HEADER_H }} />
@@ -68,7 +78,7 @@ export default function FileMap() {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function Header({ status, nodeCount, inputValue, activeRoot, onInputChange, onSubmit }) {
+function Header({ status, nodeCount, inputValue, activeRoot, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   return (
     <div style={styles.header}>
@@ -95,6 +105,11 @@ function Header({ status, nodeCount, inputValue, activeRoot, onInputChange, onSu
         <button type="submit" disabled={loading} style={{ ...styles.submitBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
           Avaa
         </button>
+        {activeRoot && (
+          <button type="button" onClick={onReset} disabled={loading} style={{ ...styles.resetBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
+            Nollaa
+          </button>
+        )}
       </form>
     </div>
   )
@@ -155,6 +170,11 @@ const styles = {
   submitBtn: {
     background: '#8b5cf6', border: 'none', borderRadius: 6,
     padding: '5px 14px', color: '#fff', fontFamily: 'monospace',
+    fontSize: 12, whiteSpace: 'nowrap',
+  },
+  resetBtn: {
+    background: 'transparent', border: '1px solid #334155', borderRadius: 6,
+    padding: '5px 14px', color: '#94a3b8', fontFamily: 'monospace',
     fontSize: 12, whiteSpace: 'nowrap',
   },
   tooltip: {

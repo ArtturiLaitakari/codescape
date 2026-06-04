@@ -9,14 +9,15 @@ const VIEWS = [
 
 export default function App() {
   const [activeView, setActiveView] = useState('filemap')
+  // Shared across views so switching tabs doesn't forget the loaded folder
+  const [sharedRoot, setSharedRoot] = useState(null)
 
   return (
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
-      {/* Tab navigation — shown in every view's header via portal-like overlay */}
       <TabNav views={VIEWS} active={activeView} onChange={setActiveView} />
 
-      {activeView === 'filemap' && <FileMap />}
-      {activeView === 'heatmap' && <DependencyHeatmap />}
+      {activeView === 'filemap' && <FileMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} />}
+      {activeView === 'heatmap' && <DependencyHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} />}
     </div>
   )
 }
