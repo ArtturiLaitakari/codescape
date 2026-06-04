@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { nodeColor, LEGEND } from '../lib/graph-colors.js'
+import { t, tf } from '../lib/i18n.js'
 
 const HEADER_H = 72  // px — canvas offset so content isn't hidden under header
 
-export default function FileMap({ sharedRoot, onRootChange }) {
+export default function FileMap({ sharedRoot, onRootChange, lang = 'fi' }) {
   const containerRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [hovered, setHovered] = useState(null)
@@ -63,6 +64,7 @@ export default function FileMap({ sharedRoot, onRootChange }) {
         nodeCount={nodeCount}
         inputValue={inputValue}
         activeRoot={activeRoot}
+        lang={lang}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
         onReset={handleReset}
@@ -70,7 +72,7 @@ export default function FileMap({ sharedRoot, onRootChange }) {
 
       <div ref={containerRef} style={{ position: 'absolute', inset: 0, paddingTop: HEADER_H }} />
 
-      {hovered && <HoverTooltip hovered={hovered} />}
+      {hovered && <HoverTooltip hovered={hovered} lang={lang} />}
       {status === 'ready' && <Legend />}
     </div>
   )
@@ -78,16 +80,16 @@ export default function FileMap({ sharedRoot, onRootChange }) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function Header({ status, nodeCount, inputValue, activeRoot, onInputChange, onSubmit, onReset }) {
+function Header({ status, nodeCount, inputValue, activeRoot, lang, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   return (
     <div style={styles.header}>
       <div style={styles.headerTop}>
         <span style={styles.title}>koodikartta</span>
-        <span style={styles.subtitle}>File Map</span>
+        <span style={styles.subtitle}>{t('subtitle_filemap', lang)}</span>
         <span style={{ ...styles.statusText, marginLeft: 'auto', color: status.startsWith('error') ? '#f87171' : '#64748b' }}>
-          {status === 'ready' ? `${nodeCount} nodes · scroll to zoom · drag to pan`
-           : status === 'loading' ? 'scanning…'
+          {status === 'ready' ? tf('nodes_filemap', { count: nodeCount }, lang)
+           : status === 'loading' ? t('scanning', lang)
            : status}
         </span>
       </div>
@@ -96,18 +98,18 @@ function Header({ status, nodeCount, inputValue, activeRoot, onInputChange, onSu
         <input
           value={inputValue}
           onChange={(e) => onInputChange(e.target.value)}
-          placeholder={activeRoot ?? 'Liitä projektin absoluuttinen polku…'}
+          placeholder={activeRoot ?? t('path_placeholder', lang)}
           spellCheck={false}
           style={styles.pathInput}
           onFocus={(e) => (e.target.style.borderColor = '#8b5cf6')}
           onBlur={(e)  => (e.target.style.borderColor = '#334155')}
         />
         <button type="submit" disabled={loading} style={{ ...styles.submitBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
-          Avaa
+          {t('open', lang)}
         </button>
         {activeRoot && (
           <button type="button" onClick={onReset} disabled={loading} style={{ ...styles.resetBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            Nollaa
+            {t('reset', lang)}
           </button>
         )}
       </form>
@@ -115,15 +117,15 @@ function Header({ status, nodeCount, inputValue, activeRoot, onInputChange, onSu
   )
 }
 
-function HoverTooltip({ hovered }) {
+function HoverTooltip({ hovered, lang }) {
   const kindLabel =
     hovered.kind === 'file' ? `.${hovered.ext}` :
-    hovered.kind === 'dir-empty' ? 'dir (empty)' :
+    hovered.kind === 'dir-empty' ? t('dir_empty', lang) :
     hovered.kind
   return (
     <div style={styles.tooltip}>
       <div style={{ color: nodeColor(hovered), fontWeight: 700 }}>{hovered.label}</div>
-      <div style={{ color: '#64748b', marginTop: 2 }}>{kindLabel} · depth {hovered.depth}</div>
+      <div style={{ color: '#64748b', marginTop: 2 }}>{kindLabel} · {t('depth', lang)} {hovered.depth}</div>
       <div style={{ color: '#475569', marginTop: 2, maxWidth: 280, wordBreak: 'break-all' }}>{hovered.key}</div>
     </div>
   )

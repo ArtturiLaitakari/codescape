@@ -1,24 +1,25 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
+import { t, tf } from '../lib/i18n.js'
 
 const HEADER_H = 72
 
-// Must match IMPACT_COLORS in useSigmaGraph.js
-const FILE_LEGEND = [
-  { color: '#fbbf24', label: 'Muutettu tiedosto' },
-  { color: '#f97316', label: 'Suorat käyttäjät (depth 1)' },
-  { color: '#f59e0b', label: '2. tason vaikutus' },
-  { color: '#fde68a', label: '3.+ tason vaikutus' },
+// Legend entries are functions of lang so they update when language switches
+const FILE_LEGEND = (lang) => [
+  { color: '#fbbf24', label: t('l_changed_file', lang) },
+  { color: '#f97316', label: t('l_direct_users', lang) },
+  { color: '#f59e0b', label: t('l_depth2', lang) },
+  { color: '#fde68a', label: t('l_depth3plus', lang) },
 ]
-const DIR_LEGEND = [
-  { color: '#fbbf24', label: 'Valittu kansio' },
-  { color: '#f97316', label: 'Suorat lapset' },
-  { color: '#f59e0b', label: '2. tason sisältö' },
-  { color: '#fde68a', label: 'Syvemmät tasot' },
+const DIR_LEGEND = (lang) => [
+  { color: '#fbbf24', label: t('l_selected_folder', lang) },
+  { color: '#f97316', label: t('l_direct_children', lang) },
+  { color: '#f59e0b', label: t('l_depth2_content', lang) },
+  { color: '#fde68a', label: t('l_deeper', lang) },
 ]
 
-export default function ChangeImpactMap({ sharedRoot, onRootChange }) {
+export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' }) {
   const containerRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [hovered, setHovered] = useState(null)
@@ -167,6 +168,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange }) {
         activeRoot={activeRoot}
         selectedImpact={selectedImpact}
         selectMode={selectMode}
+        lang={lang}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
         onReset={handleReset}
@@ -174,37 +176,33 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange }) {
 
       <div ref={containerRef} style={{ position: 'absolute', inset: 0, paddingTop: HEADER_H }} />
 
-      {hovered && <HoverTooltip hovered={hovered} />}
-      {status === 'ready' && <ImpactLegend selectMode={selectMode} />}
+      {hovered && <HoverTooltip hovered={hovered} lang={lang} />}
+      {status === 'ready' && <ImpactLegend selectMode={selectMode} lang={lang} />}
     </div>
   )
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, onInputChange, onSubmit, onReset }) {
+function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   const name = selectedImpact?.node.split('/').pop() ?? ''
   const statusMsg = selectedImpact
     ? selectMode === 'dir'
-      ? selectedImpact.count === 0
-        ? `${name}/ on tyhjä`
-        : `${name}/ sisältää ${selectedImpact.count} solmua`
-      : selectedImpact.count === 0
-        ? `${name} — ei liitoksia`
-        : `${name} → ${selectedImpact.count} tiedostoa vaikuttuisi`
+      ? tf(selectedImpact.count === 0 ? 'impact_dir_empty' : 'impact_dir_has', { name, count: selectedImpact.count }, lang)
+      : tf(selectedImpact.count === 0 ? 'impact_file_none' : 'impact_file_has', { name, count: selectedImpact.count }, lang)
     : null
   return (
     <div style={styles.header}>
       <div style={styles.headerTop}>
         <span style={styles.title}>koodikartta</span>
-        <span style={styles.subtitle}>Muutosvaikutuskartta</span>
+        <span style={styles.subtitle}>{t('subtitle_impact', lang)}</span>
         {statusMsg ? (
           <span style={{ ...styles.statusText, marginLeft: 'auto', color: '#fbbf24' }}>{statusMsg}</span>
         ) : (
           <span style={{ ...styles.statusText, marginLeft: 'auto', color: status.startsWith('error') ? '#f87171' : '#64748b' }}>
-            {status === 'ready' ? `${nodeCount} nodes · klikkaa tiedostoa tai kansiota`
-             : status === 'loading' ? 'parsitaan importteja…'
+            {status === 'ready' ? tf('nodes_impact', { count: nodeCount }, lang)
+             : status === 'loading' ? t('parsing_imports', lang)
              : status}
           </span>
         )}
@@ -214,18 +212,18 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
         <input
           value={inputValue}
           onChange={(e) => onInputChange(e.target.value)}
-          placeholder={activeRoot ?? 'Liitä projektin absoluuttinen polku…'}
+          placeholder={activeRoot ?? t('path_placeholder', lang)}
           spellCheck={false}
           style={styles.pathInput}
           onFocus={(e) => (e.target.style.borderColor = '#22c55e')}
           onBlur={(e)  => (e.target.style.borderColor = '#334155')}
         />
         <button type="submit" disabled={loading} style={{ ...styles.submitBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
-          Avaa
+          {t('open', lang)}
         </button>
         {activeRoot && (
           <button type="button" onClick={onReset} disabled={loading} style={{ ...styles.resetBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            Nollaa
+            {t('reset', lang)}
           </button>
         )}
       </form>
@@ -233,14 +231,14 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
   )
 }
 
-function HoverTooltip({ hovered }) {
+function HoverTooltip({ hovered, lang }) {
   const isFile = hovered.kind === 'file'
   return (
     <div style={styles.tooltip}>
       <div style={{ color: hovered.color ?? '#e2e8f0', fontWeight: 700 }}>{hovered.label}</div>
       <div style={{ color: '#64748b', marginTop: 2 }}>
         {isFile
-          ? `importoijia: ${hovered.fanIn ?? 0}  ·  importteja: ${hovered.fanOut ?? 0}  ·  .${hovered.ext}`
+          ? `${t('importers', lang)}: ${hovered.fanIn ?? 0}  ·  ${t('imports', lang)}: ${hovered.fanOut ?? 0}  ·  .${hovered.ext}`
           : hovered.kind}
       </div>
       <div style={{ color: '#475569', marginTop: 2, maxWidth: 280, wordBreak: 'break-all' }}>{hovered.key}</div>
@@ -248,9 +246,9 @@ function HoverTooltip({ hovered }) {
   )
 }
 
-function ImpactLegend({ selectMode }) {
-  const entries = selectMode === 'dir' ? DIR_LEGEND : FILE_LEGEND
-  const title = selectMode === 'dir' ? 'KANSIOSISÄLTÖ' : 'VAIKUTUSSYVYYS'
+function ImpactLegend({ selectMode, lang }) {
+  const entries = (selectMode === 'dir' ? DIR_LEGEND : FILE_LEGEND)(lang)
+  const title = t(selectMode === 'dir' ? 'legend_folder_contents' : 'legend_impact_depth', lang)
   return (
     <div style={styles.legend}>
       <div style={{ color: '#64748b', fontSize: 10, marginBottom: 7, letterSpacing: 1 }}>{title}</div>
@@ -263,7 +261,7 @@ function ImpactLegend({ selectMode }) {
         ))}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 2, borderTop: '1px solid #1e293b', paddingTop: 5 }}>
           <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#334155', display: 'inline-block', flexShrink: 0 }} />
-          <span style={{ color: '#475569', fontSize: 11 }}>Ei valittu</span>
+          <span style={{ color: '#475569', fontSize: 11 }}>{t('l_not_selected', lang)}</span>
         </div>
       </div>
     </div>

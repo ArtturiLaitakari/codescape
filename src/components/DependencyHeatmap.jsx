@@ -2,10 +2,11 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { fanInColor, fanInSize, HEATMAP_LEGEND_STOPS } from '../lib/heatmap-colors.js'
+import { t, tf } from '../lib/i18n.js'
 
 const HEADER_H = 72
 
-export default function DependencyHeatmap({ sharedRoot, onRootChange }) {
+export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi' }) {
   const containerRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [hovered, setHovered] = useState(null)
@@ -84,6 +85,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange }) {
         nodeCount={nodeCount}
         inputValue={inputValue}
         activeRoot={activeRoot}
+        lang={lang}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
         onReset={handleReset}
@@ -99,16 +101,16 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange }) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, onInputChange, onSubmit, onReset }) {
+function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   return (
     <div style={styles.header}>
       <div style={styles.headerTop}>
         <span style={styles.title}>koodikartta</span>
-        <span style={styles.subtitle}>Dependency Heatmap</span>
+        <span style={styles.subtitle}>{t('subtitle_heatmap', lang)}</span>
         <span style={{ ...styles.statusText, marginLeft: 'auto', color: status.startsWith('error') ? '#f87171' : '#64748b' }}>
-          {status === 'ready' ? `${nodeCount} nodes · fan-in heat · scroll/drag`
-           : status === 'loading' ? 'parsing imports…'
+          {status === 'ready' ? tf('nodes_heatmap', { count: nodeCount }, lang)
+           : status === 'loading' ? t('parsing_imports', lang)
            : status}
         </span>
       </div>
@@ -117,18 +119,18 @@ function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, onInputChang
         <input
           value={inputValue}
           onChange={(e) => onInputChange(e.target.value)}
-          placeholder={activeRoot ?? 'Liitä projektin absoluuttinen polku…'}
+          placeholder={activeRoot ?? t('path_placeholder', lang)}
           spellCheck={false}
           style={styles.pathInput}
           onFocus={(e) => (e.target.style.borderColor = '#ef4444')}
           onBlur={(e)  => (e.target.style.borderColor = '#334155')}
         />
         <button type="submit" disabled={loading} style={{ ...styles.submitBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
-          Avaa
+          {t('open', lang)}
         </button>
         {activeRoot && (
           <button type="button" onClick={onReset} disabled={loading} style={{ ...styles.resetBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            Nollaa
+            {t('reset', lang)}
           </button>
         )}
       </form>
