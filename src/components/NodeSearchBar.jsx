@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import { t } from '../lib/i18n.js'
 
 /**
@@ -9,8 +10,18 @@ import { t } from '../lib/i18n.js'
  *   setFilter(keys)     – pass Set<string> of matching keys, or null to clear
  *   lang                – current UI language
  *   accent              – focus border colour matching the view accent
+ *   resetRef            – optional ref; gets a clear() function attached so parents can reset the input
  */
-export function NodeSearchBar({ getNodes, setFilter, lang = 'fi', accent = '#8b5cf6' }) {
+export function NodeSearchBar({ getNodes, setFilter, lang = 'fi', accent = '#8b5cf6', resetRef }) {
+  const inputRef = useRef(null)
+
+  // Expose a reset function so the parent can clear the field (e.g. on node click)
+  if (resetRef) {
+    resetRef.current = () => {
+      if (inputRef.current) inputRef.current.value = ''
+      setFilter(null)
+    }
+  }
   function handleChange(e) {
     const q = e.target.value.trim().toLowerCase()
     if (!q) { setFilter(null); return }
@@ -25,7 +36,10 @@ export function NodeSearchBar({ getNodes, setFilter, lang = 'fi', accent = '#8b5
   }
 
   function handleKeyDown(e) {
-    if (e.key === 'Escape') { e.target.value = ''; setFilter(null) }
+    if (e.key === 'Escape') {
+      if (inputRef.current) inputRef.current.value = ''
+      setFilter(null)
+    }
   }
 
   return (
@@ -35,6 +49,7 @@ export function NodeSearchBar({ getNodes, setFilter, lang = 'fi', accent = '#8b5
         fontSize: 11, color: '#475569', pointerEvents: 'none', userSelect: 'none',
       }}>🔍</span>
       <input
+        ref={inputRef}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         placeholder={t('search_placeholder', lang)}

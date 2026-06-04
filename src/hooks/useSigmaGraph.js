@@ -39,7 +39,7 @@ function impactColor(depth) {
  * @param {{ onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus }} callbacks
  * @returns {{ load: (nodes, edges, rootKey) => void }}
  */
-export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus }) {
+export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode }) {
   const sigmaRef = useRef(null)
   const graphRef = useRef(null)
   const nodesRef = useRef([])
@@ -194,6 +194,9 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
           focusRef.current = { node, neighbors, impactZone: null }
         }
       }
+      // Clear any active search filter so focus and filter don't overlap
+      filterRef.current = null
+      onClickNode?.()
       sigma.refresh()
     })
     sigma.on('clickStage', () => {
@@ -211,7 +214,7 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
     sigma.on('leaveNode', () => onLeaveNode?.())
 
     onReady?.(graph.order)
-  }, [containerRef, destroy, onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus])
+  }, [containerRef, destroy, onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode])
 
   const getNodes = useCallback(() => nodesRef.current, [])
 

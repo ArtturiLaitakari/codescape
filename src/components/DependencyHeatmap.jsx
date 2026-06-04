@@ -19,7 +19,10 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
   const onLeaveNode = useCallback(() => setHovered(null), [])
   const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
 
-  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady })
+  const searchResetRef = useRef(null)
+  const onClickNode = useCallback(() => { searchResetRef.current?.() }, [])
+
+  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
@@ -89,6 +92,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
         lang={lang}
         getNodes={getNodes}
         setFilter={setFilter}
+        searchResetRef={searchResetRef}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
         onReset={handleReset}
@@ -104,7 +108,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, onInputChange, onSubmit, onReset }) {
+function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   return (
     <div style={styles.header}>
@@ -137,7 +141,7 @@ function HeatmapHeader({ status, nodeCount, inputValue, activeRoot, lang, getNod
           </button>
         )}
         <div style={{ width: 1, background: '#334155', alignSelf: 'stretch', margin: '0 4px', flexShrink: 0 }} />
-        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#ef4444' />
+        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#ef4444' resetRef={searchResetRef} />
       </form>
     </div>
   )

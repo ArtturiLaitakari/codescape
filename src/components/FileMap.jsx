@@ -18,7 +18,10 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi' }) {
   const onLeaveNode = useCallback(() => setHovered(null), [])
   const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
 
-  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady })
+  const searchResetRef = useRef(null)
+  const onClickNode = useCallback(() => { searchResetRef.current?.() }, [])
+
+  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
@@ -68,6 +71,7 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi' }) {
         lang={lang}
         getNodes={getNodes}
         setFilter={setFilter}
+        searchResetRef={searchResetRef}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
         onReset={handleReset}
@@ -83,7 +87,7 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi' }) {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function Header({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, onInputChange, onSubmit, onReset }) {
+function Header({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   return (
     <div style={styles.header}>
@@ -116,7 +120,7 @@ function Header({ status, nodeCount, inputValue, activeRoot, lang, getNodes, set
           </button>
         )}
         <div style={{ width: 1, background: '#334155', alignSelf: 'stretch', margin: '0 4px', flexShrink: 0 }} />
-        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#8b5cf6' />
+        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#8b5cf6' resetRef={searchResetRef} />
       </form>
     </div>
   )

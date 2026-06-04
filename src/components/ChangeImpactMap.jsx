@@ -83,7 +83,10 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
 
   const onClearFocus = useCallback(() => { setSelectedImpact(null); setSelectMode(null) }, [])
 
-  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus })
+  const searchResetRef = useRef(null)
+  const onClickNode = useCallback(() => { searchResetRef.current?.() }, [])
+
+  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
@@ -172,6 +175,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
         lang={lang}
         getNodes={getNodes}
         setFilter={setFilter}
+        searchResetRef={searchResetRef}
         onInputChange={(v) => setInputValue(v)}
         onSubmit={handleSubmit}
         onReset={handleReset}
@@ -187,7 +191,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, onInputChange, onSubmit, onReset }) {
+function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   const name = selectedImpact?.node.split('/').pop() ?? ''
   const statusMsg = selectedImpact
@@ -230,7 +234,7 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
           </button>
         )}
         <div style={{ width: 1, background: '#334155', alignSelf: 'stretch', margin: '0 4px', flexShrink: 0 }} />
-        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#22c55e' />
+        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#22c55e' resetRef={searchResetRef} />
       </form>
     </div>
   )
