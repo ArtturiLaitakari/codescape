@@ -7,17 +7,41 @@ import {
   VIRTUAL_DB_COLOR, VIRTUAL_API_COLOR, VIRTUAL_NODE_SIZE,
 } from '../lib/runtime-colors.js'
 import { t, tf } from '../lib/i18n.js'
-import { NodeSearchBar } from './NodeSearchBar.jsx'
+import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 
-const HEADER_H = 56
+// ── Band definitions (static) ────────────────────────────────────────────────
+const RUNTIME_BANDS = [
+  { id: 'danger',  minT: 0.60,              color: '#ef4444' },
+  { id: 'warning', minT: 0.30, maxT: 0.60,  color: '#eab308' },
+  { id: 'ok',      minT: 0.00, maxT: 0.30,  color: '#22c55e' },
+]
+const BAND_LABEL = {
+  danger:  { fi: 'Kriittinen', en: 'Critical',  sv: 'Kritisk'  },
+  warning: { fi: 'Kohtalainen', en: 'Moderate', sv: 'Måttlig' },
+  ok:      { fi: 'Matala',      en: 'Low',       sv: 'Låg'     },
+}
+function getBandLabel(id, lang) {
+  return BAND_LABEL[id]?.[lang] ?? BAND_LABEL[id]?.en ?? id
+}
+function countBand(fileList, band) {
+  return fileList.filter(f => f.tScore >= band.minT && f.tScore < (band.maxT ?? Infinity)).length
+}
+function filterBand(fileList, bandId) {
+  const band = RUNTIME_BANDS.find(b => b.id === bandId)
+  if (!band) return fileList
+  return fileList.filter(f => f.tScore >= band.minT && f.tScore < (band.maxT ?? Infinity))
+}
 
 export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }) {
   const containerRef = useRef(null)
   const [status, setStatus]     = useState('loading')
   const [hovered, setHovered]   = useState(null)
+  const [pinned, setPinned]     = useState(null)
   const [nodeCount, setNodeCount] = useState(0)
   const [inputValue, setInputValue] = useState(sharedRoot ?? '')
   const [activeRoot, setActiveRoot] = useState(null)
+  const [fileList, setFileList]     = useState([])  // [{ key, label, color, runtimeScore, tScore, ... }]
+  const [selectedBand, setSelectedBand] = useState(null)
 
   // key → { dbCallCount, apiCallCount, cyclomatic, runtimeScore } for virtual node callers lookup
   const nodeAttrsRef = useRef({})
@@ -29,7 +53,10 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }
   const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
 
   const searchResetRef = useRef(null)
-  const onClickNode = useCallback(() => { searchResetRef.current?.() }, [])
+  const onClickNode = useCallback((key, attrs) => {
+    searchResetRef.current?.()
+    setPinned(prev => prev?.key === key ? null : { key, ...attrs })
+  }, [])
 
   const { load, getNodes, setFilter } = useSigmaGraph(containerRef, {
     onEnterNode, onLeaveNode, onReady, onClickNode,
@@ -90,6 +117,24 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }
         })
 
         load(nodes, body.treeEdges, '__root__', body.runtimeEdges)
+
+        // Build sorted file list for the filter panel
+        const fileSorted = nodes
+          .filter(n => n.attributes.kind === 'file')
+          .map(n => ({
+            key: n.key,
+            label: n.attributes.label,
+            color: n.attributes.color,
+            runtimeScore: n.attributes.runtimeScore ?? 0,
+            tScore: maxScore > 0 ? (n.attributes.runtimeScore ?? 0) / maxScore : 0,
+            kind: n.attributes.kind,
+            ext: n.attributes.ext,
+            dbCallCount: n.attributes.dbCallCount,
+            apiCallCount: n.attributes.apiCallCount,
+            cyclomatic: n.attributes.cyclomatic,
+          }))
+          .sort((a, b) => b.runtimeScore - a.runtimeScore)
+        setFileList(fileSorted)
       })
       .catch((e) => { if (!cancelled) setStatus(`error: ${e.message}`) })
 
@@ -111,12 +156,14 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }
   function handleReset() {
     setInputValue('')
     setActiveRoot(null)
+    setFileList([])
+    setSelectedBand(null)
     onRootChange?.(null)
     loadGraph('')
   }
 
   return (
-    <div style={{ position: 'relative', width: '100vw', height: '100vh', background: '#0f172a' }}>
+    <div className="cs-view cs-view--runtime">
       <RuntimeHeader
         status={status}
         nodeCount={nodeCount}
@@ -131,10 +178,30 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }
         onReset={handleReset}
       />
 
-      <div ref={containerRef} style={{ position: 'absolute', inset: 0, paddingTop: HEADER_H }} />
+      <div ref={containerRef} className="cs-canvas" />
 
-      {hovered && <RuntimeTooltip hovered={hovered} nodeAttrsRef={nodeAttrsRef} lang={lang} />}
-      {status === 'ready' && <RuntimeLegend lang={lang} />}
+      {(hovered ?? pinned) && <RuntimeTooltip hovered={hovered ?? pinned} lang={lang} />}
+      {status === 'ready' && (
+        <RuntimeLegend
+          lang={lang}
+          fileList={fileList}
+          selectedBand={selectedBand}
+          onBandSelect={setSelectedBand}
+        />
+      )}
+      {status === 'ready' && selectedBand !== null && (
+        <RuntimeFilePanel
+          fileList={filterBand(fileList, selectedBand)}
+          selectedBand={selectedBand}
+          onClose={() => setSelectedBand(null)}
+          onSelectFile={(key, f) => {
+            searchResetRef.current?.()
+            setPinned(prev => prev?.key === key ? null : { key, ...f })
+          }}
+          pinned={pinned}
+          lang={lang}
+        />
+      )}
     </div>
   )
 }
@@ -144,14 +211,11 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }
 function RuntimeHeader({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
   return (
-    <div style={styles.header}>
-      <div style={styles.headerTop}>
-        <span style={styles.title}>Codespace</span>
-        <span style={styles.subtitle}>{t('subtitle_runtime', lang)}</span>
-        <span style={{
-          ...styles.statusText, marginLeft: 'auto',
-          color: status.startsWith('error') ? '#f87171' : '#64748b',
-        }}>
+    <div className="cs-header">
+      <div className="cs-header__top">
+        <span className="cs-title">Codespace</span>
+        <span className="cs-subtitle">{t('subtitle_runtime', lang)}</span>
+        <span className={`cs-status${status.startsWith('error') ? ' cs-status--error' : ''}`}>
           {status === 'ready'
             ? tf('nodes_runtime', { count: nodeCount }, lang)
             : status === 'loading'
@@ -159,28 +223,18 @@ function RuntimeHeader({ status, nodeCount, inputValue, activeRoot, lang, getNod
               : status}
         </span>
       </div>
-      <form onSubmit={onSubmit} style={styles.pathRow}>
-        <span style={styles.folderIcon}>📁</span>
-        <input
-          value={inputValue}
-          onChange={(e) => onInputChange(e.target.value)}
-          placeholder={activeRoot ?? t('path_placeholder', lang)}
-          spellCheck={false}
-          style={styles.pathInput}
-          onFocus={(e) => (e.target.style.borderColor = '#06b6d4')}
-          onBlur={(e)  => (e.target.style.borderColor = '#334155')}
-        />
-        <button type="submit" disabled={loading} style={{ ...styles.submitBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
-          {t('open', lang)}
-        </button>
-        {activeRoot && (
-          <button type="button" onClick={onReset} disabled={loading} style={{ ...styles.resetBtn, opacity: loading ? 0.5 : 1, cursor: loading ? 'not-allowed' : 'pointer' }}>
-            {t('reset', lang)}
-          </button>
-        )}
-        <div style={{ width: 1, background: '#334155', alignSelf: 'stretch', margin: '0 4px', flexShrink: 0 }} />
-        <NodeSearchBar getNodes={getNodes} setFilter={setFilter} lang={lang} accent='#06b6d4' resetRef={searchResetRef} />
-      </form>
+      <GraphHeaderForm
+        inputValue={inputValue}
+        activeRoot={activeRoot}
+        loading={loading}
+        lang={lang}
+        getNodes={getNodes}
+        setFilter={setFilter}
+        searchResetRef={searchResetRef}
+        onInputChange={onInputChange}
+        onSubmit={onSubmit}
+        onReset={onReset}
+      />
     </div>
   )
 }
@@ -191,14 +245,14 @@ function RuntimeTooltip({ hovered, lang }) {
   const isVirtApi = hovered.kind === 'virtual-api'
 
   return (
-    <div style={styles.tooltip}>
-      <div style={{ color: hovered.color ?? '#e2e8f0', fontWeight: 700 }}>{hovered.label}</div>
+    <div className="cs-tooltip">
+      <div className="cs-tooltip__title" style={{ '--cs-ink': hovered.color ?? 'var(--cs-text-primary)' }}>{hovered.label}</div>
 
       {isFile && (
         <>
-          <div style={{ color: '#64748b', marginTop: 2 }}>.{hovered.ext}</div>
-          <div style={{ color: '#475569', marginTop: 2, maxWidth: 280, wordBreak: 'break-all' }}>{hovered.key}</div>
-          <div style={{ marginTop: 8, borderTop: '1px solid #1e293b', paddingTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <div className="cs-tooltip__sub">.{hovered.ext}</div>
+          <div className="cs-tooltip__path">{hovered.key}</div>
+          <div className="cs-tooltip__section">
             <MetricRow label={t('runtime_score', lang)} value={(hovered.runtimeScore ?? 0).toFixed(1)} color='#f97316' />
             <MetricRow label={t('db_calls',       lang)} value={hovered.dbCallCount  ?? 0} color={VIRTUAL_DB_COLOR}  />
             <MetricRow label={t('api_calls',      lang)} value={hovered.apiCallCount ?? 0} color={VIRTUAL_API_COLOR} />
@@ -209,8 +263,8 @@ function RuntimeTooltip({ hovered, lang }) {
 
       {(isVirtDb || isVirtApi) && (
         <>
-          <div style={{ color: '#475569', marginTop: 2 }}>{hovered.key}</div>
-          <div style={{ marginTop: 8, borderTop: '1px solid #1e293b', paddingTop: 8 }}>
+          <div className="cs-tooltip__path">{hovered.key}</div>
+          <div className="cs-tooltip__section">
             <MetricRow
               label={isVirtDb ? t('db_calls', lang) : t('api_calls', lang)}
               value={isVirtDb ? (hovered.dbCallerCount ?? 0) : (hovered.apiCallerCount ?? 0)}
@@ -221,7 +275,7 @@ function RuntimeTooltip({ hovered, lang }) {
       )}
 
       {!isFile && !isVirtDb && !isVirtApi && (
-        <div style={{ color: '#475569', marginTop: 2 }}>{hovered.kind}</div>
+        <div className="cs-tooltip__path">{hovered.kind}</div>
       )}
     </div>
   )
@@ -229,101 +283,95 @@ function RuntimeTooltip({ hovered, lang }) {
 
 function MetricRow({ label, value, color }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16 }}>
-      <span style={{ color: '#64748b', fontSize: 11 }}>{label}</span>
-      <span style={{ color, fontSize: 11, fontWeight: 600 }}>{value}</span>
+    <div className="cs-metric">
+      <span className="cs-metric__label">{label}</span>
+      <span className="cs-metric__value" style={{ '--cs-ink': color }}>{value}</span>
     </div>
   )
 }
 
-function RuntimeLegend({ lang }) {
+function RuntimeLegend({ lang, fileList, selectedBand, onBandSelect }) {
   return (
-    <div style={styles.legend}>
-      <div style={{ color: '#64748b', fontSize: 10, marginBottom: 5, letterSpacing: 1 }}>
+    <div className="cs-legend cs-legend--interactive">
+      <div className="cs-legend__title">
         {t('runtime_score', lang).toUpperCase()}
       </div>
-      <div style={{
-        height: 8, borderRadius: 4, marginBottom: 4, width: 120,
-        background: `linear-gradient(to right, ${RUNTIME_LEGEND_STOPS.map(s => s.color).join(', ')})`,
-      }} />
-      <div style={{ display: 'flex', justifyContent: 'space-between', width: 120, marginBottom: 10 }}>
-        <span style={{ color: '#94a3b8', fontSize: 10 }}>0</span>
-        <span style={{ color: '#94a3b8', fontSize: 10 }}>max</span>
+      <div
+        className="cs-legend__gradient"
+        style={{ '--cs-gradient': `linear-gradient(to right, ${RUNTIME_LEGEND_STOPS.map(s => s.color).join(', ')})` }}
+      />
+      <div className="cs-legend__scale">
+        <span>0</span>
+        <span>max</span>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: VIRTUAL_DB_COLOR, display: 'inline-block', flexShrink: 0 }} />
-          <span style={{ color: '#94a3b8', fontSize: 11 }}>Database</span>
+      <div className="cs-legend__col" style={{ marginBottom: 6 }}>
+        {RUNTIME_BANDS.map(band => {
+          const count = countBand(fileList, band)
+          return (
+            <div
+              key={band.id}
+              className={`cs-legend__band${selectedBand === band.id ? ' cs-legend__band--active' : ''}`}
+              onClick={() => onBandSelect(selectedBand === band.id ? null : band.id)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span className="cs-legend__dot" style={{ '--cs-swatch': band.color }} />
+                <span className="cs-legend__label">{getBandLabel(band.id, lang)}</span>
+              </div>
+              {count > 0 && <span className="cs-legend__count">{count}</span>}
+            </div>
+          )
+        })}
+      </div>
+      <div className="cs-legend__sep" />
+      <div className="cs-legend__col">
+        <div className="cs-legend__row">
+          <span className="cs-legend__dot" style={{ '--cs-swatch': VIRTUAL_DB_COLOR }} />
+          <span className="cs-legend__label">Database</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: VIRTUAL_API_COLOR, display: 'inline-block', flexShrink: 0 }} />
-          <span style={{ color: '#94a3b8', fontSize: 11 }}>External API</span>
+        <div className="cs-legend__row">
+          <span className="cs-legend__dot" style={{ '--cs-swatch': VIRTUAL_API_COLOR }} />
+          <span className="cs-legend__label">External API</span>
         </div>
       </div>
     </div>
   )
 }
 
-// ── Styles ────────────────────────────────────────────────────────────────────
+function RuntimeFilePanel({ fileList, selectedBand, onClose, onSelectFile, pinned, lang }) {
+  const band = RUNTIME_BANDS.find(b => b.id === selectedBand)
+  const label = getBandLabel(selectedBand, lang)
+  const color = band?.color ?? 'var(--cs-text-sec)'
 
-const styles = {
-  header: {
-    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
-    background: 'rgba(15,23,42,0.92)',
-    borderBottom: '1px solid #1e293b',
-    backdropFilter: 'blur(6px)',
-    padding: '6px 12px 6px 12px',
-    height: HEADER_H,
-    display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 4,
-  },
-  headerTop: {
-    display: 'flex', alignItems: 'baseline', gap: 10,
-  },
-  title: {
-    color: '#06b6d4', fontFamily: 'monospace', fontSize: 13, fontWeight: 700, letterSpacing: 1,
-  },
-  subtitle: {
-    color: '#475569', fontFamily: 'monospace', fontSize: 11,
-  },
-  statusText: {
-    fontFamily: 'monospace', fontSize: 11,
-  },
-  pathRow: {
-    display: 'flex', alignItems: 'center', gap: 6,
-  },
-  folderIcon: {
-    fontSize: 14, flexShrink: 0,
-  },
-  pathInput: {
-    flex: 1, minWidth: 0,
-    background: '#0f172a', border: '1px solid #334155', borderRadius: 5,
-    color: '#e2e8f0', fontFamily: 'monospace', fontSize: 11,
-    padding: '3px 8px', outline: 'none',
-    transition: 'border-color 0.15s',
-  },
-  submitBtn: {
-    background: '#06b6d4', border: 'none', borderRadius: 5,
-    color: '#0f172a', fontFamily: 'monospace', fontSize: 11, fontWeight: 700,
-    padding: '3px 10px', flexShrink: 0,
-  },
-  resetBtn: {
-    background: 'transparent', border: '1px solid #334155', borderRadius: 5,
-    color: '#64748b', fontFamily: 'monospace', fontSize: 11,
-    padding: '3px 10px', flexShrink: 0,
-  },
-  tooltip: {
-    position: 'absolute', bottom: 20, left: 20,
-    background: 'rgba(15,23,42,0.95)', border: '1px solid #1e293b',
-    borderRadius: 8, padding: '10px 14px',
-    fontFamily: 'monospace', fontSize: 12,
-    pointerEvents: 'none', zIndex: 15,
-    minWidth: 180,
-  },
-  legend: {
-    position: 'absolute', bottom: 20, right: 20,
-    background: 'rgba(15,23,42,0.92)', border: '1px solid #1e293b',
-    borderRadius: 8, padding: '12px 14px',
-    fontFamily: 'monospace', fontSize: 11,
-    pointerEvents: 'none', zIndex: 15,
-  },
+  return (
+    <div className="cs-file-panel">
+      <div className="cs-file-panel__head">
+        <div className="cs-file-panel__title">
+          <span className="cs-legend__dot" style={{ '--cs-swatch': color }} />
+          {label}
+          <span className="cs-legend__count">({fileList.length})</span>
+        </div>
+        <button className="cs-file-panel__close" onClick={onClose} title="Sulje">✕</button>
+      </div>
+      <div className="cs-file-panel__list">
+        {fileList.map(f => (
+          <div
+            key={f.key}
+            className={`cs-file-panel__row${pinned?.key === f.key ? ' cs-file-panel__row--pinned' : ''}`}
+            onClick={() => onSelectFile(f.key, f)}
+            title={f.key}
+          >
+            <span className="cs-legend__dot" style={{ '--cs-swatch': f.color }} />
+            <span className="cs-file-panel__name">{f.label}</span>
+            <span className="cs-file-panel__score" style={{ '--cs-ink': f.color }}>
+              {f.runtimeScore.toFixed(1)}
+            </span>
+          </div>
+        ))}
+        {fileList.length === 0 && (
+          <div style={{ padding: '8px 10px', color: 'var(--cs-text-dim)', fontSize: 10 }}>—</div>
+        )}
+      </div>
+    </div>
+  )
 }
+

@@ -39,7 +39,7 @@ function impactColor(depth) {
  * @param {{ onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus }} callbacks
  * @returns {{ load: (nodes, edges, rootKey) => void }}
  */
-export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode }) {
+export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode }) {
   const sigmaRef = useRef(null)
   const graphRef = useRef(null)
   const nodesRef = useRef([])
@@ -196,7 +196,7 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
       }
       // Clear any active search filter so focus and filter don't overlap
       filterRef.current = null
-      onClickNode?.()
+      onClickNode?.(node, graph.getNodeAttributes(node))
       sigma.refresh()
     })
     sigma.on('clickStage', () => {
@@ -212,6 +212,12 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
 
     sigma.on('enterNode', ({ node }) => onEnterNode?.(node, graph.getNodeAttributes(node)))
     sigma.on('leaveNode', () => onLeaveNode?.())
+
+    // Double-click on a node — prevent sigma's default zoom and fire callback
+    sigma.on('doubleClickNode', ({ node, event }) => {
+      event.preventSigmaDefault()
+      onDoubleClickNode?.(node, graph.getNodeAttributes(node))
+    })
 
     onReady?.(graph.order)
   }, [containerRef, destroy, onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode])

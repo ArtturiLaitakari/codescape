@@ -9,10 +9,9 @@ import { t } from '../lib/i18n.js'
  *   getNodes()          – returns array of { key, label, kind, ext }
  *   setFilter(keys)     – pass Set<string> of matching keys, or null to clear
  *   lang                – current UI language
- *   accent              – focus border colour matching the view accent
  *   resetRef            – optional ref; gets a clear() function attached so parents can reset the input
  */
-export function NodeSearchBar({ getNodes, setFilter, lang = 'fi', accent = '#8b5cf6', resetRef }) {
+export function NodeSearchBar({ getNodes, setFilter, lang = 'fi', resetRef }) {
   const inputRef = useRef(null)
 
   // Expose a reset function so the parent can clear the field (e.g. on node click)
@@ -43,25 +42,15 @@ export function NodeSearchBar({ getNodes, setFilter, lang = 'fi', accent = '#8b5
   }
 
   return (
-    <div style={{ position: 'relative', flexShrink: 0 }}>
-      <span style={{
-        position: 'absolute', left: 7, top: '50%', transform: 'translateY(-50%)',
-        fontSize: 11, color: '#475569', pointerEvents: 'none', userSelect: 'none',
-      }}>🔍</span>
+    <div className="cs-search">
+      <span className="cs-search__icon">🔍</span>
       <input
         ref={inputRef}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
         placeholder={t('search_placeholder', lang)}
         spellCheck={false}
-        style={{
-          width: 162, background: '#1e293b', border: '1px solid #334155',
-          borderRadius: 6, padding: '3px 8px 3px 24px',
-          fontFamily: 'monospace', fontSize: 11,
-          color: '#e2e8f0', outline: 'none',
-        }}
-        onFocus={e => (e.target.style.borderColor = accent)}
-        onBlur={e  => (e.target.style.borderColor = '#334155')}
+        className="cs-search__input"
       />
     </div>
   )

@@ -66,6 +66,18 @@ const T = {
     runtime_score:     'Runtime-pisteet',
     subtitle_runtime:  'Runtime-kartta',
 
+    // ── FileCodeView ─────────────────────────────────────────────────────
+    subtitle_filecode: 'Koodirakenne',
+    functions:         'funktiota',
+    imports:           'kirjastoa',
+    close:             'Sulje',
+    fn_kind:           'Tyyppi',
+    fn_lines:          'Rivejä',
+    fn_params:         'Parametreja',
+    external_import:   'Ulkoinen riippuvuus',
+    file_center:       'Tiedosto (keskus)',
+    legend:            'Selite',
+
     // ── Search ────────────────────────────────────────────────────────────
     search_placeholder: 'Hae tiedostoa tai kansiota…',
   },
@@ -135,6 +147,18 @@ const T = {
     runtime_score:     'Runtime score',
     subtitle_runtime:  'Runtime Map',
 
+    // ── FileCodeView ─────────────────────────────────────────────────────
+    subtitle_filecode: 'Code Structure',
+    functions:         'functions',
+    imports:           'libraries',
+    close:             'Close',
+    fn_kind:           'Kind',
+    fn_lines:          'Lines',
+    fn_params:         'Params',
+    external_import:   'External dependency',
+    file_center:       'File (center)',
+    legend:            'Legend',
+
     // ── Search ────────────────────────────────────────────────────────────
     search_placeholder: 'Search file or folder…',
   },
@@ -203,6 +227,18 @@ const T = {
     cyclomatic:        'Förgreningar',
     runtime_score:     'Runtime-poäng',
     subtitle_runtime:  'Runtime-karta',
+
+    // ── FileCodeView ─────────────────────────────────────────────────────
+    subtitle_filecode: 'Kodstruktur',
+    functions:         'funktioner',
+    imports:           'bibliotek',
+    close:             'Stäng',
+    fn_kind:           'Typ',
+    fn_lines:          'Rader',
+    fn_params:         'Parametrar',
+    external_import:   'Externt beroende',
+    file_center:       'Fil (centrum)',
+    legend:            'Förklaring',
 
     // ── Search ────────────────────────────────────────────────────────────
     search_placeholder: 'Sök fil eller mapp…',

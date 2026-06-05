@@ -1,0 +1,32 @@
+/* ────────────────────────────────────────────────────────────────────────────
+   Codespace theme — DARK (default).
+
+   Defines all --cs-* theme tokens on :root. This is the default theme; it
+   applies whenever <html> does NOT carry the "cs-light" class.
+
+   Structural/layout rules live in codespace.css. Light theme overrides live in
+   theme-light.css. Keep one file per theme.
+   ──────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --cs-bg:               #0f172a;
+  --cs-header-bg:        rgba(15, 23, 42, 0.92);
+  --cs-tab-bg:           rgba(15, 23, 42, 0.85);
+  --cs-tooltip-bg:       rgba(15, 23, 42, 0.97);
+  --cs-input-bg:         #1e293b;
+  --cs-overlay-bg:       rgba(0, 0, 0, 0.85);
+  --cs-border:           #1e293b;
+  --cs-border-2:         #334155;
+  --cs-text-primary:     #e2e8f0;
+  --cs-text-sec:         #94a3b8;
+  --cs-text-muted:       #64748b;
+  --cs-text-dim:         #475569;
+  --cs-accent:           #8b5cf6;
+  --cs-accent-dim:       rgba(139, 92, 246, 0.15);
+  --cs-accent-contrast:  #ffffff;
+  --cs-active-text:      #ffffff;
+  --cs-error:            #f87171;
+  --cs-warn:             #fbbf24;
+  --cs-graph-bg:         #0f172a;
+  --cs-menu-shadow:      0 8px 24px rgba(0, 0, 0, 0.35);
+}

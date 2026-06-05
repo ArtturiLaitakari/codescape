@@ -175,6 +175,111 @@ const API_PACKAGES = new Set([
 ])
 
 /**
+ * Analyse a single ts-morph SourceFile for function/method structure.
+ * Returns { functions, externalImports, loc }
+ */
+function detectFileFunctions(sf) {
+  const text = sf.getText()
+  const loc = text.split('\n').length
+
+  // External imports (non-relative)
+  const externalImports = []
+  for (const decl of sf.getImportDeclarations()) {
+    const spec = decl.getModuleSpecifierValue()
+    if (!spec.startsWith('.')) externalImports.push(spec)
+  }
+
+  const BRANCH_KINDS = [
+    'IfStatement', 'ConditionalExpression',
+    'ForStatement', 'ForInStatement', 'ForOfStatement',
+    'WhileStatement', 'DoStatement',
+    'CatchClause', 'CaseClause',
+  ]
+
+  function cyclomaticOf(node) {
+    let c = 1
+    for (const kindName of BRANCH_KINDS) {
+      try {
+        c += node.getDescendants().filter(n => n.getKindName() === kindName).length
+      } catch { /* skip */ }
+    }
+    return c
+  }
+
+  function linesOf(node) {
+    try {
+      const start = node.getStartLineNumber()
+      const end = node.getEndLineNumber()
+      return end - start + 1
+    } catch { return 1 }
+  }
+
+  const functions = []
+
+  // Named function declarations
+  for (const fn of sf.getFunctions()) {
+    const name = fn.getName() ?? '(anonymous)'
+    functions.push({
+      name,
+      kind: 'function',
+      lines: linesOf(fn),
+      params: fn.getParameters().length,
+      cyclomatic: cyclomaticOf(fn),
+    })
+  }
+
+  // Arrow functions / function expressions assigned to variables
+  for (const varDecl of sf.getVariableDeclarations()) {
+    const init = varDecl.getInitializer()
+    if (!init) continue
+    const kindName = init.getKindName()
+    if (kindName === 'ArrowFunction' || kindName === 'FunctionExpression') {
+      functions.push({
+        name: varDecl.getName(),
+        kind: 'arrow',
+        lines: linesOf(init),
+        params: init.getParameters?.()?.length ?? 0,
+        cyclomatic: cyclomaticOf(init),
+      })
+    }
+  }
+
+  // Class methods
+  for (const cls of sf.getClasses()) {
+    for (const method of cls.getMethods()) {
+      functions.push({
+        name: `${cls.getName() ?? 'Class'}.${method.getName()}`,
+        kind: 'method',
+        lines: linesOf(method),
+        params: method.getParameters().length,
+        cyclomatic: cyclomaticOf(method),
+      })
+    }
+  }
+
+  return { functions, externalImports: [...new Set(externalImports)], loc }
+}
+
+/**
+ * Analyse a single file and return function/complexity data.
+ */
+async function buildFileCode(filePath) {
+  const project = new Project({
+    skipAddingFilesFromTsConfig: true,
+    skipFileDependencyResolution: true,
+    useInMemoryFileSystem: false,
+  })
+  try {
+    project.addSourceFileAtPath(filePath)
+  } catch (e) {
+    throw new Error(`Cannot parse file: ${e.message}`)
+  }
+  const sf = project.getSourceFile(filePath)
+  if (!sf) throw new Error('File not found in project after adding')
+  return detectFileFunctions(sf)
+}
+
+/**
  * Analyse a single ts-morph SourceFile for runtime cost indicators.
  * Returns { dbCallCount, apiCallCount, cyclomatic }
  */
@@ -379,6 +484,23 @@ export function fileMapPlugin(rootDir) {
           if (error) { res.statusCode = 400; res.end(JSON.stringify({ error })); return }
           const data = await buildRuntimeGraph(target)
           data.root = target
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(data))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+
+      server.middlewares.use('/api/filecode', async (req, res) => {
+        try {
+          const url = new URL(req.url, 'http://localhost')
+          const filePath = url.searchParams.get('path')
+          if (!filePath) { res.statusCode = 400; res.end(JSON.stringify({ error: 'path required' })); return }
+          const resolved = path.resolve(filePath)
+          if (!fs.existsSync(resolved)) { res.statusCode = 404; res.end(JSON.stringify({ error: 'File not found' })); return }
+          const data = await buildFileCode(resolved)
+          data.file = resolved
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(data))
         } catch (e) {
