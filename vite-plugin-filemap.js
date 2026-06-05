@@ -183,8 +183,29 @@ const API_PACKAGES = new Set([
 ])
 
 /**
+ * Build a parent-child tree from a flat function list using startLine/endLine ranges.
+ */
+function buildFunctionTree(flat) {
+  if (flat.length === 0) return []
+  // Sort by startLine asc, endLine desc — containing fns always before contained fns
+  const sorted = [...flat].sort((a, b) =>
+    a.startLine !== b.startLine ? a.startLine - b.startLine : b.endLine - a.endLine
+  )
+  const roots = []
+  const stack = [] // ancestor stack
+  for (const fn of sorted) {
+    while (stack.length > 0 && fn.startLine > stack[stack.length - 1].endLine) stack.pop()
+    fn.children = []
+    if (stack.length === 0) roots.push(fn)
+    else stack[stack.length - 1].children.push(fn)
+    stack.push(fn)
+  }
+  return roots
+}
+
+/**
  * Analyse a single ts-morph SourceFile for function/method structure.
- * Returns { functions, externalImports, loc }
+ * Returns { functions (tree), externalImports, loc }
  */
 function detectFileFunctions(sf) {
   const text = sf.getText()
@@ -224,47 +245,82 @@ function detectFileFunctions(sf) {
 
   const functions = []
 
-  // Named function declarations
-  for (const fn of sf.getFunctions()) {
-    const name = fn.getName() ?? '(anonymous)'
-    functions.push({
-      name,
-      kind: 'function',
-      startLine: fn.getStartLineNumber(),
-      lines: linesOf(fn),
-      params: fn.getParameters().length,
-      cyclomatic: cyclomaticOf(fn),
-    })
-  }
-
-  // Arrow functions / function expressions assigned to variables
-  for (const varDecl of sf.getVariableDeclarations()) {
-    const init = varDecl.getInitializer()
-    if (!init) continue
-    const kindName = init.getKindName()
-    if (kindName === 'ArrowFunction' || kindName === 'FunctionExpression') {
-      functions.push({
-        name: varDecl.getName(),
-        kind: 'arrow',
-        startLine: varDecl.getStartLineNumber(),
-        lines: linesOf(init),
-        params: init.getParameters?.()?.length ?? 0,
-        cyclomatic: cyclomaticOf(init),
-      })
+  // Collect all exported declaration names
+  const exportedNames = new Set()
+  try {
+    for (const [, decls] of sf.getExportedDeclarations()) {
+      for (const d of decls) {
+        try { const n = d.getName?.(); if (n) exportedNames.add(n) } catch { /* skip */ }
+      }
     }
+  } catch { /* skip */ }
+  // Also catch export default HOC(Name) — getName() fails on CallExpression
+  try {
+    for (const ea of sf.getExportAssignments()) {
+      try {
+        const expr = ea.getExpression()
+        const idents = [expr, ...expr.getDescendants()].filter(n => n.getKindName() === 'Identifier')
+        for (const id of idents) {
+          try { const t = id.getText(); if (t) exportedNames.add(t) } catch { /* skip */ }
+        }
+      } catch { /* skip */ }
+    }
+  } catch { /* skip */ }
+
+  // Traverse ALL descendants once — collect named FunctionDeclarations and named arrow fns
+  const allNodes = sf.getDescendants()
+
+  for (const node of allNodes) {
+    try {
+      if (node.getKindName() === 'FunctionDeclaration') {
+        const name = node.getName?.() ?? ''
+        if (!name) continue
+        functions.push({
+          name,
+          kind: 'function',
+          isRoot: exportedNames.has(name),
+          startLine: node.getStartLineNumber(),
+          endLine:   node.getEndLineNumber(),
+          lines:     linesOf(node),
+          params:    node.getParameters?.()?.length ?? 0,
+          cyclomatic: cyclomaticOf(node),
+        })
+      } else if (node.getKindName() === 'VariableDeclaration') {
+        const init = node.getInitializer?.()
+        if (!init) continue
+        const ik = init.getKindName()
+        if (ik !== 'ArrowFunction' && ik !== 'FunctionExpression') continue
+        const name = node.getName?.()
+        if (!name) continue
+        functions.push({
+          name,
+          kind:   'arrow',
+          isRoot: exportedNames.has(name),
+          startLine: node.getStartLineNumber(),
+          endLine:   init.getEndLineNumber(),
+          lines:     linesOf(init),
+          params:    init.getParameters?.()?.length ?? 0,
+          cyclomatic: cyclomaticOf(init),
+        })
+      }
+    } catch { /* skip */ }
   }
 
-  // Class methods
+  // Class methods (getMethods() already covers all depths)
   for (const cls of sf.getClasses()) {
     for (const method of cls.getMethods()) {
-      functions.push({
-        name: `${cls.getName() ?? 'Class'}.${method.getName()}`,
-        kind: 'method',
-        startLine: method.getStartLineNumber(),
-        lines: linesOf(method),
-        params: method.getParameters().length,
-        cyclomatic: cyclomaticOf(method),
-      })
+      try {
+        functions.push({
+          name: `${cls.getName() ?? 'Class'}.${method.getName()}`,
+          kind:   'method',
+          isRoot: false,
+          startLine: method.getStartLineNumber(),
+          endLine:   method.getEndLineNumber(),
+          lines:     linesOf(method),
+          params:    method.getParameters().length,
+          cyclomatic: cyclomaticOf(method),
+        })
+      } catch { /* skip */ }
     }
   }
 
@@ -307,7 +363,8 @@ function detectFileFunctions(sf) {
     lowCount,
   }
 
-  return { functions, externalImports: [...new Set(externalImports)], loc, complexity }
+  const functionTree = buildFunctionTree(functions)
+  return { functions: functionTree, externalImports: [...new Set(externalImports)], loc, complexity }
 }
 
 /**

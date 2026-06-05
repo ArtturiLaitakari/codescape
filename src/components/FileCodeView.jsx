@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { VIRTUAL_API_COLOR } from '../lib/runtime-colors.js'
 import { t } from '../lib/i18n.js'
 
@@ -26,68 +26,102 @@ function miColor(mi) {
 }
 
 // ── Layout ──────────────────────────────────────────────────────────────────
-const VIEW_W = 1200
-const VIEW_H = 750
-const CX     = VIEW_W / 2
-const CY     = VIEW_H / 2
 const FILE_R = 28
 const TRUNC  = 22
+// Horizontal tree: column width and row height
+const COL_W  = 240   // horizontal gap per depth level
+const ROW_H  = 46    // vertical gap between siblings
 
 const trim = (s) =>
   s && s.length > TRUNC ? s.slice(0, TRUNC - 1) + '…' : (s || '')
 
+// Count total leaf slots in subtree (for height calculation)
+function countSlots(fn) {
+  if (!fn.children || fn.children.length === 0) return 1
+  return fn.children.reduce((s, c) => s + countSlots(c), 0)
+}
+
 function buildLayout(data) {
-  const { functions = [], file = '', loc } = data
-  const center    = { x: CX, y: CY, label: file.split('/').pop(), loc }
-  const sortedFns = [...functions].sort((a, b) => b.cyclomatic - a.cyclomatic)
-  const fnCount   = sortedFns.length
+  const { functions = [], file = '' } = data
+  const center = { x: 80, y: 0, label: file.split('/').pop() }
 
-  if (fnCount === 0) return { center, leaves: [] }
+  const roots = [...functions].sort((a, b) => b.cyclomatic - a.cyclomatic)
+  if (roots.length === 0) return { center, nodes: [], edges: [], height: 200 }
 
-  const baseR  = Math.max(230, (fnCount * 46) / (2 * Math.PI))
-  const startA = -Math.PI / 2  // 12 o'clock — highest CC at the top
+  const nodes = []
+  const edges = []
 
-  const leaves = []
+  // Assign a Y slot index to every node using an in-order traversal
+  let slotCounter = 0
 
-  sortedFns.forEach((fn, i) => {
-    const angle = fnCount === 1
-      ? startA
-      : startA + 2 * Math.PI * (i / fnCount)
+  function placeSubtree(fn, depth) {
+    const mySlotStart = slotCounter
+    const children = fn.children ?? []
+
+    // Place children first to get their slots
+    const childNodes = []
+    for (const child of [...children].sort((a, b) => b.cyclomatic - a.cyclomatic)) {
+      childNodes.push(placeSubtree(child, depth + 1))
+    }
+
+    // My Y = centre of my children's range (or current slot if leaf)
+    let mySlot
+    if (childNodes.length === 0) {
+      mySlot = slotCounter
+      slotCounter++
+    } else {
+      mySlot = (mySlotStart + slotCounter - 1) / 2
+    }
+
     const tier = tierOf(fn.cyclomatic)
-    leaves.push({
-      id:         `fn:${fn.name}`,
-      label:      fn.name,
-      kind:       'fn',
-      startLine:  fn.startLine ?? null,
-      lines:      fn.lines,
-      params:     fn.params,
-      cyclomatic: fn.cyclomatic,
-      fnKind:     fn.kind,
-      tier:       tier.label,
-      color:      tier.color,
-      r:          Math.max(5, 4 + Math.sqrt(Math.max(1, fn.lines)) * 1.1),
-      x:          CX + Math.cos(angle) * baseR,
-      y:          CY + Math.sin(angle) * baseR,
-      angle,
+    const r    = Math.max(5, 4 + Math.sqrt(Math.max(1, fn.lines)) * 1.1)
+    const x    = 80 + (depth + 1) * COL_W
+    const y    = mySlot * ROW_H
+    const id   = `fn:${fn.name}:${fn.startLine ?? depth}`
+
+    nodes.push({
+      id, label: fn.name, kind: 'fn', isRoot: fn.isRoot ?? false,
+      startLine: fn.startLine ?? null, lines: fn.lines, params: fn.params,
+      cyclomatic: fn.cyclomatic, fnKind: fn.kind,
+      tier: tier.label, color: tier.color, r, x, y, depth,
     })
-  })
 
-  return { center, leaves }
+    return { id, x, y, color: tier.color, depth, childNodes }
+  }
+
+  // First pass: build node list + slot assignments
+  const rootResults = roots.map(fn => placeSubtree(fn, 0))
+  const totalHeight = Math.max(200, slotCounter * ROW_H)
+
+  // Center file node vertically
+  center.y = (slotCounter - 1) / 2 * ROW_H
+
+  // Second pass: build edges (needs x/y which are now known)
+  function buildEdges(parentX, parentY, result) {
+    const node = nodes.find(n => n.id === result.id)
+    if (!node) return
+    edges.push({ fromX: parentX, fromY: parentY, toX: node.x, toY: node.y, color: node.color, depth: node.depth })
+    for (const child of result.childNodes) {
+      buildEdges(node.x, node.y, child)
+    }
+  }
+  for (const r of rootResults) buildEdges(center.x, center.y, r)
+
+  return { center, nodes, edges, height: totalHeight }
 }
 
-// Gentle quadratic bezier from center to leaf
-function curvePath(x1, y1, x2, y2) {
-  const mx  = (x1 + x2) / 2
-  const my  = (y1 + y2) / 2
-  const dx  = x2 - x1
-  const dy  = y2 - y1
-  const len = Math.sqrt(dx * dx + dy * dy) || 1
-  const b   = len * 0.18
-  return `M ${x1} ${y1} Q ${mx - (dy / len) * b} ${my + (dx / len) * b} ${x2} ${y2}`
+// Horizontal right-angle elbow connector
+function elbowPath(x1, y1, x2, y2) {
+  const mx = (x1 + x2) / 2
+  return `M ${x1} ${y1} H ${mx} V ${y2} H ${x2}`
 }
 
-// ── SVG Mind Map ─────────────────────────────────────────────────────────────
+// ── SVG Mind Map — horizontal tree + pan/zoom ────────────────────────────────
 function MindMap({ data, hovered, onHover, filePath, activeRoot }) {
+  const svgRef  = useRef(null)
+  const [view,  setView]  = useState({ x: 40, y: 0, scale: 1 })
+  const dragRef = useRef(null)
+
   function openInEditor(n) {
     if (!n.startLine || !filePath) return
     const absPath = filePath.startsWith('/')
@@ -95,113 +129,134 @@ function MindMap({ data, hovered, onHover, filePath, activeRoot }) {
       : activeRoot ? `${activeRoot}/${filePath}` : filePath
     window.location.href = `vscode://file/${absPath}:${n.startLine}`
   }
-  const { center, leaves } = buildLayout(data)
+
+  const { center, nodes, edges, height } = buildLayout(data)
+  const maxDepth = nodes.reduce((m, n) => Math.max(m, n.depth), 0)
+
+  // Reset view to fit when data changes
+  useEffect(() => { setView({ x: 40, y: 0, scale: 1 }) }, [data])
+
+  // Pan — only start if not clicking a node (target === svg or g[data-bg])
+  function onMouseDown(e) {
+    if (e.button !== 0) return
+    dragRef.current = { sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }
+  }
+  function onMouseMove(e) {
+    if (!dragRef.current) return
+    setView(v => ({ ...v,
+      x: dragRef.current.vx + (e.clientX - dragRef.current.sx),
+      y: dragRef.current.vy + (e.clientY - dragRef.current.sy),
+    }))
+  }
+  function onMouseUp() { dragRef.current = null }
+
+  // Zoom toward cursor
+  function onWheel(e) {
+    e.preventDefault()
+    const delta = e.deltaY < 0 ? 1.12 : 1 / 1.12
+    const rect  = svgRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const px = e.clientX - rect.left
+    const py = e.clientY - rect.top
+    setView(v => {
+      const ns = Math.min(5, Math.max(0.1, v.scale * delta))
+      return {
+        scale: ns,
+        x: px - (px - v.x) * (ns / v.scale),
+        y: py - (py - v.y) * (ns / v.scale),
+      }
+    })
+  }
 
   return (
     <svg
-      viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-      preserveAspectRatio="xMidYMid meet"
-      width="100%"
-      height="100%"
-      style={{ position: 'absolute', inset: 0 }}
+      ref={svgRef}
+      width="100%" height="100%"
+      style={{ position: 'absolute', inset: 0, cursor: dragRef.current ? 'grabbing' : 'grab', userSelect: 'none' }}
+      onMouseDown={onMouseDown}
+      onMouseMove={onMouseMove}
+      onMouseUp={onMouseUp}
+      onMouseLeave={onMouseUp}
+      onWheel={onWheel}
     >
-      <defs>
-        <radialGradient id="fcv-halo" cx="50%" cy="50%" r="50%">
-          <stop offset="0%"   stopColor={FILE_COLOR} stopOpacity="0.07" />
-          <stop offset="100%" stopColor={FILE_COLOR} stopOpacity="0"    />
-        </radialGradient>
-      </defs>
+      <g transform={`translate(${view.x},${view.y}) scale(${view.scale})`}>
 
-      {/* Soft halo behind center */}
-      <circle cx={center.x} cy={center.y} r={95} fill="url(#fcv-halo)" />
+        {/* Edges */}
+        {edges.map((e, i) => (
+          <path
+            key={`e-${i}`}
+            d={elbowPath(e.fromX, e.fromY, e.toX, e.toY)}
+            stroke={e.color}
+            strokeWidth={e.depth === 0 ? 1.5 : 1}
+            strokeOpacity={Math.max(0.15, 0.38 - e.depth * 0.04)}
+            fill="none"
+          />
+        ))}
 
-      {/* Connection lines */}
-      {leaves.map(n => (
-        <path
-          key={n.id + '-l'}
-          d={curvePath(center.x, center.y, n.x, n.y)}
-          stroke={n.color}
-          strokeWidth={n.kind === 'fn' ? 1.4 : 0.9}
-          strokeOpacity={0.28}
-          fill="none"
-        />
-      ))}
+        {/* Nodes */}
+        {nodes.map(n => {
+          const isHov = hovered?.id === n.id
+          const nodeR = n.r + (isHov ? 2 : 0)
+          const lx    = n.x + nodeR + 7
+          const fs    = Math.max(8, 11 - n.depth)
 
-      {/* Leaf nodes */}
-      {leaves.map(n => {
-        const isHov  = hovered?.id === n.id
-        const right  = Math.cos(n.angle) >= 0
-        const lx     = n.x + (right ? n.r + 6 : -(n.r + 6))
-        const anchor = right ? 'start' : 'end'
-        const nodeR  = n.r + (isHov ? 2 : 0)
-
-        return (
-          <g
-            key={n.id}
-            style={{ cursor: n.startLine ? 'pointer' : 'default' }}
-            onMouseEnter={() => onHover(n)}
-            onMouseLeave={() => onHover(null)}
-            onClick={() => openInEditor(n)}
-          >
-            {isHov && (
-              <circle cx={n.x} cy={n.y} r={nodeR + 6} fill={n.color} fillOpacity={0.12} />
-            )}
-            <circle
-              cx={n.x} cy={n.y} r={nodeR}
-              fill={n.color}
-              fillOpacity={isHov ? 1 : 0.82}
-              stroke={isHov ? '#fff' : 'none'}
-              strokeWidth={1.5}
-            />
-            <text
-              x={lx} y={n.y - 2}
-              textAnchor={anchor}
-              fontSize={11} fill="#e2e8f0"
-              style={{ fontFamily: 'ui-monospace, monospace' }}
+          return (
+            <g
+              key={n.id}
+              style={{ cursor: n.startLine ? 'pointer' : 'default' }}
+              onMouseEnter={e => { e.stopPropagation(); onHover(n) }}
+              onMouseLeave={e => { e.stopPropagation(); onHover(null) }}
+              onDoubleClick={e => { e.stopPropagation(); openInEditor(n) }}
             >
-              {trim(n.label)}
-            </text>
-            {n.kind === 'fn' && (<>
-              <text
-                x={lx} y={n.y + 11}
-                textAnchor={anchor}
-                fontSize={9}
-                fill={n.color}
-                style={{ fontFamily: 'monospace' }}
-              >
-                {`CC: ${n.cyclomatic}`}
+              {isHov && <circle cx={n.x} cy={n.y} r={nodeR + 6} fill={n.color} fillOpacity={0.12} />}
+              {n.isRoot ? (
+                <rect
+                  x={n.x - nodeR} y={n.y - nodeR}
+                  width={nodeR * 2} height={nodeR * 2} rx={3}
+                  fill={n.color} fillOpacity={isHov ? 1 : 0.85}
+                  stroke="#fff" strokeWidth={isHov ? 1.5 : 0.8} strokeOpacity={isHov ? 1 : 0.4}
+                />
+              ) : (
+                <circle cx={n.x} cy={n.y} r={nodeR}
+                  fill={n.color} fillOpacity={isHov ? 1 : 0.85}
+                  stroke={isHov ? '#fff' : 'none'} strokeWidth={1.5}
+                />
+              )}
+              <text x={lx} y={n.y - 3} textAnchor="start" fontSize={fs}
+                fill="#e2e8f0" style={{ fontFamily: 'ui-monospace, monospace' }}>
+                {trim(n.label)}
               </text>
-              <text
-                x={lx} y={n.y + 22}
-                textAnchor={anchor}
-                fontSize={9}
-                fill="#64748b"
-                style={{ fontFamily: 'monospace' }}
-              >
-                {`row: ${n.lines}`}
+              <text x={lx} y={n.y + fs - 2} textAnchor="start" fontSize={fs - 2}
+                fill={n.color} style={{ fontFamily: 'monospace' }}>
+                {n.isRoot ? `comp CC:\u00a0${n.cyclomatic}` : `CC:\u00a0${n.cyclomatic}`}
               </text>
-            </>)}
-          </g>
-        )
-      })}
+              <text x={lx} y={n.y + fs * 2 - 2} textAnchor="start" fontSize={fs - 2}
+                fill="#64748b" style={{ fontFamily: 'monospace' }}>
+                {`row:\u00a0${n.lines}`}
+              </text>
+            </g>
+          )
+        })}
 
-      {/* Center file node */}
-      <circle
-        cx={center.x} cy={center.y} r={FILE_R}
-        fill="#1e293b" stroke={FILE_COLOR} strokeWidth={2}
-      />
-      <text
-        x={center.x} y={center.y - 6}
-        textAnchor="middle" fontSize={10} fill={FILE_COLOR}
-        style={{ fontFamily: 'ui-monospace, monospace' }}
-      >
-        {trim(center.label)}
-      </text>
-      {center.loc != null && (
-        <text x={center.x} y={center.y + 8} textAnchor="middle" fontSize={9} fill="#64748b">
-          {center.loc} loc
+        {/* Center file node */}
+        <circle cx={center.x} cy={center.y} r={FILE_R}
+          fill="#1e293b" stroke={FILE_COLOR} strokeWidth={2} />
+        <text x={center.x} y={center.y - 5} textAnchor="middle" fontSize={10}
+          fill={FILE_COLOR} style={{ fontFamily: 'ui-monospace, monospace' }}>
+          {trim(center.label)}
         </text>
-      )}
+        {data.loc != null && (
+          <text x={center.x} y={center.y + 7} textAnchor="middle" fontSize={8} fill="#64748b">
+            {data.loc}&nbsp;loc
+          </text>
+        )}
+
+      </g>
+
+      {/* Zoom hint */}
+      <text x="8" y="16" fontSize={9} fill="#334155" style={{ pointerEvents: 'none', userSelect: 'none' }}>
+        scroll to zoom · drag to pan · double-click to open
+      </text>
     </svg>
   )
 }
@@ -250,7 +305,7 @@ export default function FileCodeView({ filePath, activeRoot, onClose, lang = 'en
         <span className="cs-overlay__name">{fileName}</span>
         {status === 'ready' && data && (
           <span className="cs-overlay__meta">
-            · {data.loc} loc · {data.functions.length} {t('functions', lang)} · {data.externalImports.length} {t('libraries_label', lang)}
+            · {data.loc} loc · {data.complexity?.functionCount ?? data.functions.length} {t('functions', lang)} · {data.externalImports.length} {t('libraries_label', lang)}
           </span>
         )}
         {status === 'loading' && (
@@ -368,7 +423,10 @@ function CodeTooltip({ node, lang }) {
       <div className="cs-tooltip__title" style={{ '--cs-ink': node.color }}>{node.label}</div>
       {node.kind === 'fn' && (
         <>
-          <div className="cs-tooltip__sub">{node.fnKind} · {node.tier}</div>
+          <div className="cs-tooltip__sub">
+            {node.fnKind} · {node.tier}
+            {node.isRoot && <span style={{ marginLeft: 6, color: '#a78bfa', fontWeight: 600 }}>⬛ root export</span>}
+          </div>
           <div className="cs-tooltip__section">
             <Row label={t('fn_lines',  lang)} value={node.lines} />
             <Row label={t('fn_params', lang)} value={node.params} />
