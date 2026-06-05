@@ -63,12 +63,9 @@ function walkDir(rootDir) {
 const JS_TS_EXTS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']
 
 /**
- * Async, chunked dependency graph builder.
- * Returns { nodes, treeEdges, importEdges } — kept separate so the client
- * can use treeEdges for layout and add importEdges afterward.
+ * Iteratively collect all JS/TS files under rootDir.
  */
-async function buildDepGraph(rootDir) {
-  // Collect JS/TS files — iterative
+function collectJsTsFiles(rootDir) {
   const allFiles = []
   const dirStack = [rootDir]
   while (dirStack.length) {
@@ -82,6 +79,17 @@ async function buildDepGraph(rootDir) {
       else if (JS_TS_EXTS.includes(path.extname(e.name))) allFiles.push(full)
     }
   }
+  return allFiles
+}
+
+/**
+ * Async, chunked dependency graph builder.
+ * Returns { nodes, treeEdges, importEdges } — kept separate so the client
+ * can use treeEdges for layout and add importEdges afterward.
+ */
+async function buildDepGraph(rootDir) {
+  // Collect JS/TS files — iterative
+  const allFiles = collectJsTsFiles(rootDir)
 
   // Add source files in chunks to avoid blocking
   const project = new Project({
@@ -222,6 +230,7 @@ function detectFileFunctions(sf) {
     functions.push({
       name,
       kind: 'function',
+      startLine: fn.getStartLineNumber(),
       lines: linesOf(fn),
       params: fn.getParameters().length,
       cyclomatic: cyclomaticOf(fn),
@@ -237,6 +246,7 @@ function detectFileFunctions(sf) {
       functions.push({
         name: varDecl.getName(),
         kind: 'arrow',
+        startLine: varDecl.getStartLineNumber(),
         lines: linesOf(init),
         params: init.getParameters?.()?.length ?? 0,
         cyclomatic: cyclomaticOf(init),
@@ -250,6 +260,7 @@ function detectFileFunctions(sf) {
       functions.push({
         name: `${cls.getName() ?? 'Class'}.${method.getName()}`,
         kind: 'method',
+        startLine: method.getStartLineNumber(),
         lines: linesOf(method),
         params: method.getParameters().length,
         cyclomatic: cyclomaticOf(method),
@@ -276,9 +287,10 @@ function detectFileFunctions(sf) {
   ))
 
   // Classify functions by complexity band
-  const highCount   = functions.filter(f => f.cyclomatic >= 10).length
-  const medCount    = functions.filter(f => f.cyclomatic >= 4 && f.cyclomatic < 10).length
-  const lowCount    = functions.filter(f => f.cyclomatic < 4).length
+  const wayTooHighCount = functions.filter(f => f.cyclomatic >= 20).length
+  const highCount       = functions.filter(f => f.cyclomatic >= 10 && f.cyclomatic < 20).length
+  const medCount        = functions.filter(f => f.cyclomatic >= 4  && f.cyclomatic < 10).length
+  const lowCount        = functions.filter(f => f.cyclomatic < 4).length
 
   const complexity = {
     loc,
@@ -289,6 +301,7 @@ function detectFileFunctions(sf) {
     totalLines,
     vocabulary,
     maintainability:  MI,
+    wayTooHighCount,
     highCount,
     medCount,
     lowCount,
@@ -373,19 +386,7 @@ function detectRuntimeCalls(sf) {
  */
 async function buildRuntimeGraph(rootDir) {
   // Collect JS/TS files
-  const allFiles = []
-  const dirStack = [rootDir]
-  while (dirStack.length) {
-    const dir = dirStack.pop()
-    let entries
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { continue }
-    for (const e of entries) {
-      if (IGNORE.has(e.name) || e.name.startsWith('.')) continue
-      const full = path.join(dir, e.name)
-      if (e.isDirectory()) dirStack.push(full)
-      else if (JS_TS_EXTS.includes(path.extname(e.name))) allFiles.push(full)
-    }
-  }
+  const allFiles = collectJsTsFiles(rootDir)
 
   const project = new Project({
     skipAddingFilesFromTsConfig: true,

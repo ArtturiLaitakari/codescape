@@ -5,7 +5,7 @@ import { t, tf } from '../lib/i18n.js'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import FileCodeView from './FileCodeView.jsx'
 
-export default function FileMap({ sharedRoot, onRootChange, lang = 'fi' }) {
+export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', onViewReady }) {
   const containerRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [hovered, setHovered]   = useState(null)
@@ -17,7 +17,7 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi' }) {
 
   const onEnterNode = useCallback((key, attrs) => setHovered({ key, ...attrs }), [])
   const onLeaveNode = useCallback(() => setHovered(null), [])
-  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
+  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready'); onViewReady?.() }, [onViewReady])
 
   const searchResetRef = useRef(null)
   const activeRootRef = useRef(activeRoot)

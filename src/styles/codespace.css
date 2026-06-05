@@ -659,6 +659,53 @@
   position: relative;
 }
 
+/* Loading spinner */
+.cs-spinner-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 20;
+}
+
+/* View-level spinner — covers the full view including header */
+.cs-spinner-wrap--view {
+  position: fixed;
+  inset: 40px 0 0 0; /* below the tab nav (~40px) */
+  background: var(--cs-bg, #0f172a);
+  z-index: 30;
+}
+
+.cs-spinner {
+  width: 48px;
+  height: 48px;
+  animation: cs-spin 1s linear infinite;
+}
+
+.cs-spinner circle:last-child {
+  animation: cs-dash 1.5s ease-in-out infinite;
+}
+
+.cs-spinner-label {
+  font-family: monospace;
+  font-size: 12px;
+  color: #64748b;
+  letter-spacing: 0.05em;
+}
+
+@keyframes cs-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes cs-dash {
+  0%   { stroke-dasharray: 1 200;  stroke-dashoffset: 0;    }
+  50%  { stroke-dasharray: 90 200; stroke-dashoffset: -35px; }
+  100% { stroke-dasharray: 90 200; stroke-dashoffset: -125px; }
+}
+
 /* ── Code analysis panel (FileCodeView) ───────────────────────────────────── */
 
 .cs-analysis {

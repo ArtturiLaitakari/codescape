@@ -86,7 +86,8 @@ const T = {
     max_cyclomatic:    'Haarautumia max',
     vocab:             'Uniikkeja tokeneita',
     complexity_dist:   'Monimutkaisuus',
-    band_high:         'Korkea ≥ 10',
+    band_way_too_high: 'Kriittinen ≥ 20',
+    band_high:         'Korkea 10–19',
     band_med:          'Kohtalainen 4–9',
     band_low:          'Matala < 4',
 
@@ -179,7 +180,8 @@ const T = {
     max_cyclomatic:    'Max complexity',
     vocab:             'Unique tokens',
     complexity_dist:   'Complexity dist.',
-    band_high:         'High ≥ 10',
+    band_way_too_high: 'Critical ≥ 20',
+    band_high:         'High 10–19',
     band_med:          'Medium 4–9',
     band_low:          'Low < 4',
 
@@ -272,7 +274,8 @@ const T = {
     max_cyclomatic:    'Max komplexitet',
     vocab:             'Unika tokens',
     complexity_dist:   'Komplexitetsfördelning',
-    band_high:         'Hög ≥ 10',
+    band_way_too_high: 'Kritisk ≥ 20',
+    band_high:         'Hög 10–19',
     band_med:          'Medel 4–9',
     band_low:          'Låg < 4',
 

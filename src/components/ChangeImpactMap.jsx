@@ -7,8 +7,9 @@ import { useImpactZone } from '../hooks/useImpactZone.js'
 import { ImportTooltip } from './ImportTooltip.jsx'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import { ImpactDepthLegend } from './ImpactDepthLegend.jsx'
+import FileCodeView from './FileCodeView.jsx'
 
-export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' }) {
+export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi', onViewReady }) {
   const containerRef = useRef(null)
   const reverseAdjRef = useRef({})
   const forwardImportRef = useRef({})
@@ -20,6 +21,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
   const [nodeCount, setNodeCount] = useState(0)
   const [inputValue, setInputValue] = useState(sharedRoot ?? '')
   const [activeRoot, setActiveRoot] = useState(null)
+  const [selectedFile, setSelectedFile] = useState(null)
 
   const { selectedImpact, selectMode, getImpactZone, onClearFocus } =
     useImpactZone(nodeAttrsRef, forwardTreeRef, reverseAdjRef)
@@ -30,15 +32,25 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
     setHovered({ key, ...attrs, importers, imports })
   }, [])
   const onLeaveNode = useCallback(() => setHovered(null), [])
-  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
+  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready'); onViewReady?.() }, [onViewReady])
 
   const searchResetRef = useRef(null)
+  const activeRootRef = useRef(activeRoot)
+  useEffect(() => { activeRootRef.current = activeRoot }, [activeRoot])
+
   const onClickNode = useCallback((key, attrs) => {
     searchResetRef.current?.()
     setPinned(prev => prev?.key === key ? null : { key, ...attrs })
   }, [])
 
-  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode })
+  const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx'])
+  const onDoubleClickNode = useCallback((key, attrs) => {
+    if (attrs?.kind === 'file' && CODE_EXTS.has(attrs?.ext) && activeRootRef.current) {
+      setSelectedFile(activeRootRef.current.replace(/\/$/, '') + '/' + key)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
@@ -132,6 +144,14 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi' 
         />
       )}
       {status === 'ready' && <ImpactDepthLegend selectMode={selectMode} lang={lang} />}
+      {selectedFile && (
+        <FileCodeView
+          filePath={selectedFile}
+          activeRoot={activeRoot}
+          onClose={() => setSelectedFile(null)}
+          lang={lang}
+        />
+      )}
     </div>
   )
 }

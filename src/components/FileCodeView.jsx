@@ -6,13 +6,15 @@ const FILE_COLOR = '#e2e8f0'
 const LIB_COLOR  = VIRTUAL_API_COLOR
 
 // Complexity tiers
-const TIER_HIGH   = { min: 10,  color: '#ef4444', label: 'high'   }
-const TIER_MED    = { min: 4,   color: '#eab308', label: 'medium' }
-const TIER_LOW    = { min: 0,   color: '#22c55e', label: 'low'    }
+const TIER_WAY_TOO_HIGH = { min: 20, color: '#c026d3', label: 'way_too_high' }
+const TIER_HIGH         = { min: 10, color: '#ef4444', label: 'high'         }
+const TIER_MED          = { min: 4,  color: '#eab308', label: 'medium'       }
+const TIER_LOW          = { min: 0,  color: '#22c55e', label: 'low'          }
 
 function tierOf(cc) {
-  if (cc >= TIER_HIGH.min) return TIER_HIGH
-  if (cc >= TIER_MED.min)  return TIER_MED
+  if (cc >= TIER_WAY_TOO_HIGH.min) return TIER_WAY_TOO_HIGH
+  if (cc >= TIER_HIGH.min)         return TIER_HIGH
+  if (cc >= TIER_MED.min)          return TIER_MED
   return TIER_LOW
 }
 
@@ -35,34 +37,28 @@ const trim = (s) =>
   s && s.length > TRUNC ? s.slice(0, TRUNC - 1) + '…' : (s || '')
 
 function buildLayout(data) {
-  const { functions = [], externalImports = [], file = '', loc } = data
-  const center     = { x: CX, y: CY, label: file.split('/').pop(), loc }
-  const sortedFns  = [...functions].sort((a, b) => b.cyclomatic - a.cyclomatic)
-  const total      = sortedFns.length + externalImports.length
+  const { functions = [], file = '', loc } = data
+  const center    = { x: CX, y: CY, label: file.split('/').pop(), loc }
+  const sortedFns = [...functions].sort((a, b) => b.cyclomatic - a.cyclomatic)
+  const fnCount   = sortedFns.length
 
-  if (total === 0) return { center, leaves: [] }
+  if (fnCount === 0) return { center, leaves: [] }
 
-  // Radius: ensure ≥ 46 px of arc between adjacent nodes
-  const baseR    = Math.max(230, (total * 46) / (2 * Math.PI))
-  const GAP      = 0.28  // radian gap between fn-arc and lib-arc
-  const totalArc = 2 * Math.PI - GAP
-  const fnCount  = sortedFns.length
-  const libCount = externalImports.length
-  const fnArc    = (fnCount  / total) * totalArc
-  const libArc   = (libCount / total) * totalArc
-  const startA   = -Math.PI / 2  // 12 o'clock — highest CC at the top
+  const baseR  = Math.max(230, (fnCount * 46) / (2 * Math.PI))
+  const startA = -Math.PI / 2  // 12 o'clock — highest CC at the top
 
   const leaves = []
 
   sortedFns.forEach((fn, i) => {
     const angle = fnCount === 1
       ? startA
-      : startA + fnArc * (i / (fnCount - 1))
+      : startA + 2 * Math.PI * (i / fnCount)
     const tier = tierOf(fn.cyclomatic)
     leaves.push({
       id:         `fn:${fn.name}`,
       label:      fn.name,
       kind:       'fn',
+      startLine:  fn.startLine ?? null,
       lines:      fn.lines,
       params:     fn.params,
       cyclomatic: fn.cyclomatic,
@@ -72,22 +68,6 @@ function buildLayout(data) {
       r:          Math.max(5, 4 + Math.sqrt(Math.max(1, fn.lines)) * 1.1),
       x:          CX + Math.cos(angle) * baseR,
       y:          CY + Math.sin(angle) * baseR,
-      angle,
-    })
-  })
-
-  externalImports.forEach((lib, i) => {
-    const angle = libCount === 1
-      ? startA + fnArc + GAP
-      : startA + fnArc + GAP + libArc * (i / (libCount - 1))
-    leaves.push({
-      id:    `lib:${lib}`,
-      label: lib,
-      kind:  'lib',
-      color: LIB_COLOR,
-      r:     7,
-      x:     CX + Math.cos(angle) * baseR,
-      y:     CY + Math.sin(angle) * baseR,
       angle,
     })
   })
@@ -107,7 +87,14 @@ function curvePath(x1, y1, x2, y2) {
 }
 
 // ── SVG Mind Map ─────────────────────────────────────────────────────────────
-function MindMap({ data, hovered, onHover }) {
+function MindMap({ data, hovered, onHover, filePath, activeRoot }) {
+  function openInEditor(n) {
+    if (!n.startLine || !filePath) return
+    const absPath = filePath.startsWith('/')
+      ? filePath
+      : activeRoot ? `${activeRoot}/${filePath}` : filePath
+    window.location.href = `vscode://file/${absPath}:${n.startLine}`
+  }
   const { center, leaves } = buildLayout(data)
 
   return (
@@ -151,9 +138,10 @@ function MindMap({ data, hovered, onHover }) {
         return (
           <g
             key={n.id}
-            style={{ cursor: 'pointer' }}
+            style={{ cursor: n.startLine ? 'pointer' : 'default' }}
             onMouseEnter={() => onHover(n)}
             onMouseLeave={() => onHover(null)}
+            onClick={() => openInEditor(n)}
           >
             {isHov && (
               <circle cx={n.x} cy={n.y} r={nodeR + 6} fill={n.color} fillOpacity={0.12} />
@@ -173,15 +161,26 @@ function MindMap({ data, hovered, onHover }) {
             >
               {trim(n.label)}
             </text>
-            <text
-              x={lx} y={n.y + 11}
-              textAnchor={anchor}
-              fontSize={9}
-              fill={n.kind === 'fn' ? n.color : n.color + '99'}
-              style={{ fontFamily: 'monospace' }}
-            >
-              {n.kind === 'fn' ? `CC:${n.cyclomatic} · ${n.lines}L` : 'import'}
-            </text>
+            {n.kind === 'fn' && (<>
+              <text
+                x={lx} y={n.y + 11}
+                textAnchor={anchor}
+                fontSize={9}
+                fill={n.color}
+                style={{ fontFamily: 'monospace' }}
+              >
+                {`CC: ${n.cyclomatic}`}
+              </text>
+              <text
+                x={lx} y={n.y + 22}
+                textAnchor={anchor}
+                fontSize={9}
+                fill="#64748b"
+                style={{ fontFamily: 'monospace' }}
+              >
+                {`row: ${n.lines}`}
+              </text>
+            </>)}
           </g>
         )
       })}
@@ -267,8 +266,19 @@ export default function FileCodeView({ filePath, activeRoot, onClose, lang = 'en
 
       {/* Mind map */}
       <div className="cs-overlay__canvas">
+        {status === 'loading' && (
+          <div className="cs-spinner-wrap">
+            <svg className="cs-spinner" viewBox="0 0 50 50">
+              <circle cx="25" cy="25" r="20" fill="none" strokeWidth="3"
+                stroke="#64748b" />
+              <circle cx="25" cy="25" r="20" fill="none" strokeWidth="3"
+                stroke="#6366f1" strokeDasharray="60 200" strokeLinecap="round" />
+            </svg>
+            <span className="cs-spinner-label">{t('scanning', lang)}</span>
+          </div>
+        )}
         {status === 'ready' && data && (
-          <MindMap data={data} hovered={hovered} onHover={setHovered} />
+          <MindMap data={data} hovered={hovered} onHover={setHovered} filePath={filePath} activeRoot={activeRoot} />
         )}
       </div>
 
@@ -286,10 +296,10 @@ export default function FileCodeView({ filePath, activeRoot, onClose, lang = 'en
 function AnalysisPanel({ complexity, lang }) {
   const {
     loc, functionCount, avgCyclomatic, maxCyclomatic,
-    vocabulary, maintainability, highCount, medCount, lowCount,
+    vocabulary, maintainability, wayTooHighCount, highCount, medCount, lowCount,
   } = complexity
 
-  const total = Math.max(1, highCount + medCount + lowCount)
+  const total = Math.max(1, wayTooHighCount + highCount + medCount + lowCount)
   const miC = miColor(maintainability)
 
   return (
@@ -316,9 +326,10 @@ function AnalysisPanel({ complexity, lang }) {
           {t('complexity_dist', lang).toUpperCase()}
         </div>
 
-        <BandBar color={TIER_HIGH.color} label={t('band_high', lang)} count={highCount} total={total} />
-        <BandBar color={TIER_MED.color}  label={t('band_med',  lang)} count={medCount}  total={total} />
-        <BandBar color={TIER_LOW.color}  label={t('band_low',  lang)} count={lowCount}  total={total} />
+        <BandBar color={TIER_WAY_TOO_HIGH.color} label={t('band_way_too_high', lang)} count={wayTooHighCount} total={total} />
+        <BandBar color={TIER_HIGH.color}         label={t('band_high',         lang)} count={highCount}       total={total} />
+        <BandBar color={TIER_MED.color}          label={t('band_med',          lang)} count={medCount}        total={total} />
+        <BandBar color={TIER_LOW.color}          label={t('band_low',          lang)} count={lowCount}        total={total} />
       </div>
     </div>
   )
@@ -386,11 +397,12 @@ function Row({ label, value, color }) {
 
 function CodeLegend({ lang }) {
   const entries = [
-    { color: FILE_COLOR,      label: t('file_center', lang) },
-    { color: TIER_HIGH.color, label: `${t('cyclomatic', lang)} ≥10` },
-    { color: TIER_MED.color,  label: `${t('cyclomatic', lang)} 4–9` },
-    { color: TIER_LOW.color,  label: `${t('cyclomatic', lang)} <4` },
-    { color: LIB_COLOR,       label: t('external_import', lang) },
+    { color: FILE_COLOR,             label: t('file_center', lang) },
+    { color: TIER_WAY_TOO_HIGH.color, label: `${t('cyclomatic', lang)} ≥20` },
+    { color: TIER_HIGH.color,        label: `${t('cyclomatic', lang)} 10–19` },
+    { color: TIER_MED.color,         label: `${t('cyclomatic', lang)} 4–9` },
+    { color: TIER_LOW.color,         label: `${t('cyclomatic', lang)} <4` },
+    { color: LIB_COLOR,              label: t('external_import', lang) },
   ]
   return (
     <div className="cs-legend">

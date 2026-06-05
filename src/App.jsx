@@ -19,6 +19,12 @@ export default function App() {
   const [sharedRoot, setSharedRoot] = useState(null)
   const [lang, setLang] = useState('en')
   const [theme, setTheme] = useState('dark')
+  const [viewReady, setViewReady] = useState(false)
+
+  function handleViewChange(id) {
+    setViewReady(false)
+    setActiveView(id)
+  }
 
   function toggleTheme() {
     setTheme(t => {
@@ -30,11 +36,22 @@ export default function App() {
 
   return (
     <div className="cs-app">
-      <TabNav views={VIEWS} active={activeView} onChange={setActiveView} lang={lang} onLangChange={setLang} theme={theme} onThemeToggle={toggleTheme} />
+      <TabNav views={VIEWS} active={activeView} onChange={handleViewChange} lang={lang} onLangChange={setLang} theme={theme} onThemeToggle={toggleTheme} />
 
-      {activeView === 'filemap'  && <FileMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} />}
-      {activeView === 'heatmap'  && <DependencyHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} />}
-      {activeView === 'runtime'  && <RuntimeHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} />}
+      {activeView === 'filemap'  && <FileMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'heatmap'  && <DependencyHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'runtime'  && <RuntimeHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} onViewReady={() => setViewReady(true)} />}
+
+      {!viewReady && (
+        <div className="cs-spinner-wrap cs-spinner-wrap--view">
+          <svg className="cs-spinner" viewBox="0 0 50 50">
+            <circle cx="25" cy="25" r="20" fill="none" strokeWidth="3" stroke="#64748b" />
+            <circle cx="25" cy="25" r="20" fill="none" strokeWidth="3"
+              stroke="#6366f1" strokeDasharray="60 200" strokeLinecap="round" />
+          </svg>
+          <span className="cs-spinner-label">{t('scanning', lang)}</span>
+        </div>
+      )}
     </div>
   )
 }

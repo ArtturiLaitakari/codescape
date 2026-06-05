@@ -8,6 +8,7 @@ import {
 } from '../lib/runtime-colors.js'
 import { t, tf } from '../lib/i18n.js'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
+import FileCodeView from './FileCodeView.jsx'
 
 // ── Band definitions (static) ────────────────────────────────────────────────
 const RUNTIME_BANDS = [
@@ -32,7 +33,7 @@ function filterBand(fileList, bandId) {
   return fileList.filter(f => f.tScore >= band.minT && f.tScore < (band.maxT ?? Infinity))
 }
 
-export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }) {
+export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', onViewReady }) {
   const containerRef = useRef(null)
   const [status, setStatus]     = useState('loading')
   const [hovered, setHovered]   = useState(null)
@@ -42,6 +43,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }
   const [activeRoot, setActiveRoot] = useState(null)
   const [fileList, setFileList]     = useState([])  // [{ key, label, color, runtimeScore, tScore, ... }]
   const [selectedBand, setSelectedBand] = useState(null)
+  const [selectedFile, setSelectedFile] = useState(null)
 
   // key → { dbCallCount, apiCallCount, cyclomatic, runtimeScore } for virtual node callers lookup
   const nodeAttrsRef = useRef({})
@@ -50,16 +52,26 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }
     setHovered({ key, ...attrs })
   }, [])
   const onLeaveNode = useCallback(() => setHovered(null), [])
-  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready') }, [])
+  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready'); onViewReady?.() }, [onViewReady])
 
   const searchResetRef = useRef(null)
+  const activeRootRef = useRef(activeRoot)
+  useEffect(() => { activeRootRef.current = activeRoot }, [activeRoot])
+
   const onClickNode = useCallback((key, attrs) => {
     searchResetRef.current?.()
     setPinned(prev => prev?.key === key ? null : { key, ...attrs })
   }, [])
 
+  const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx'])
+  const onDoubleClickNode = useCallback((key, attrs) => {
+    if (attrs?.kind === 'file' && CODE_EXTS.has(attrs?.ext) && activeRootRef.current) {
+      setSelectedFile(activeRootRef.current.replace(/\/$/, '') + '/' + key)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   const { load, getNodes, setFilter } = useSigmaGraph(containerRef, {
-    onEnterNode, onLeaveNode, onReady, onClickNode,
+    onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
   })
 
   const loadGraph = useCallback((targetPath) => {
@@ -199,6 +211,14 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en' }
             setPinned(prev => prev?.key === key ? null : { key, ...f })
           }}
           pinned={pinned}
+          lang={lang}
+        />
+      )}
+      {selectedFile && (
+        <FileCodeView
+          filePath={selectedFile}
+          activeRoot={activeRoot}
+          onClose={() => setSelectedFile(null)}
           lang={lang}
         />
       )}
