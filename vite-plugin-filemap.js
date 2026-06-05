@@ -257,7 +257,44 @@ function detectFileFunctions(sf) {
     }
   }
 
-  return { functions, externalImports: [...new Set(externalImports)], loc }
+  // ── File-level complexity metrics ────────────────────────────────────────
+  const totalCyclomatic = functions.reduce((s, f) => s + f.cyclomatic, 0)
+  const avgCyclomatic   = functions.length ? +(totalCyclomatic / functions.length).toFixed(1) : 1
+  const maxCyclomatic   = functions.length ? Math.max(...functions.map(f => f.cyclomatic)) : 1
+  const totalLines      = functions.reduce((s, f) => s + f.lines, 0)
+
+  // Halstead-lite: count unique operators/operands (rough proxy)
+  const tokens = text.match(/[a-zA-Z_$][a-zA-Z0-9_$]*/g) ?? []
+  const uniqueTokens = new Set(tokens).size
+  const vocabulary = uniqueTokens
+
+  // Maintainability index (simplified): 171 - 5.2*ln(V) - 0.23*CC - 16.2*ln(L)
+  // Clamped to [0,100]
+  const V = Math.max(1, vocabulary)
+  const MI = Math.max(0, Math.min(100,
+    Math.round(171 - 5.2 * Math.log(V) - 0.23 * totalCyclomatic - 16.2 * Math.log(Math.max(1, loc)))
+  ))
+
+  // Classify functions by complexity band
+  const highCount   = functions.filter(f => f.cyclomatic >= 10).length
+  const medCount    = functions.filter(f => f.cyclomatic >= 4 && f.cyclomatic < 10).length
+  const lowCount    = functions.filter(f => f.cyclomatic < 4).length
+
+  const complexity = {
+    loc,
+    functionCount:    functions.length,
+    totalCyclomatic,
+    avgCyclomatic,
+    maxCyclomatic,
+    totalLines,
+    vocabulary,
+    maintainability:  MI,
+    highCount,
+    medCount,
+    lowCount,
+  }
+
+  return { functions, externalImports: [...new Set(externalImports)], loc, complexity }
 }
 
 /**

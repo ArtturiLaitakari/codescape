@@ -658,3 +658,129 @@
   flex: 1;
   position: relative;
 }
+
+/* ── Code analysis panel (FileCodeView) ───────────────────────────────────── */
+
+.cs-analysis {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 15;
+  width: 230px;
+  background: var(--cs-header-bg);
+  border: 1px solid var(--cs-border);
+  border-radius: 10px;
+  font-family: monospace;
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.cs-analysis__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px 7px;
+  border-bottom: 1px solid var(--cs-border);
+}
+
+.cs-analysis__title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--cs-text-muted);
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+}
+
+.cs-analysis__mi {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--cs-ink, var(--cs-text-primary));
+}
+
+.cs-analysis__mi-label {
+  font-size: 9px;
+  color: var(--cs-text-dim);
+  margin-top: 1px;
+}
+
+.cs-analysis__score {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.cs-analysis__body {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cs-analysis__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.cs-analysis__key {
+  color: var(--cs-text-muted);
+  font-size: 10px;
+}
+
+.cs-analysis__val {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cs-ink, var(--cs-text-primary));
+}
+
+.cs-analysis__sep {
+  height: 1px;
+  background: var(--cs-border);
+  margin: 4px 0;
+}
+
+.cs-analysis__band {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.cs-analysis__band-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--cs-swatch);
+}
+
+.cs-analysis__band-label {
+  flex: 1;
+  color: var(--cs-text-sec);
+  font-size: 10px;
+}
+
+.cs-analysis__band-count {
+  color: var(--cs-text-dim);
+  font-size: 10px;
+}
+
+.cs-analysis__bar-wrap {
+  position: relative;
+  height: 5px;
+  background: var(--cs-border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 1px;
+}
+
+.cs-analysis__bar-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--cs-ink);
+  transition: width 0.4s ease;
+}
