@@ -57,6 +57,15 @@ const T = {
     // ── Shared legend entries ─────────────────────────────────────────────────
     l_not_selected: 'Ei valittu',
 
+    // ── Runtime Heatmap ─────────────────────────────────────────────────────
+    tab_runtime:       'Runtime-kartta',
+    nodes_runtime:     '{count} solmua · runtime-lämpö',
+    db_calls:          'DB-kutsut',
+    api_calls:         'API-kutsut',
+    cyclomatic:        'Haarautumia',
+    runtime_score:     'Runtime-pisteet',
+    subtitle_runtime:  'Runtime-kartta',
+
     // ── Search ────────────────────────────────────────────────────────────
     search_placeholder: 'Hae tiedostoa tai kansiota…',
   },
@@ -117,6 +126,15 @@ const T = {
     // ── Shared legend entries ─────────────────────────────────────────────────
     l_not_selected: 'Not selected',
 
+    // ── Runtime Heatmap ─────────────────────────────────────────────────────
+    tab_runtime:       'Runtime Map',
+    nodes_runtime:     '{count} nodes · runtime heat',
+    db_calls:          'DB calls',
+    api_calls:         'API calls',
+    cyclomatic:        'Branches',
+    runtime_score:     'Runtime score',
+    subtitle_runtime:  'Runtime Map',
+
     // ── Search ────────────────────────────────────────────────────────────
     search_placeholder: 'Search file or folder…',
   },
@@ -176,6 +194,15 @@ const T = {
 
     // ── Shared legend entries ─────────────────────────────────────────────────
     l_not_selected: 'Ej vald',
+
+    // ── Runtime Heatmap ─────────────────────────────────────────────────────
+    tab_runtime:       'Runtime-karta',
+    nodes_runtime:     '{count} noder · runtime-värme',
+    db_calls:          'DB-anrop',
+    api_calls:         'API-anrop',
+    cyclomatic:        'Förgreningar',
+    runtime_score:     'Runtime-poäng',
+    subtitle_runtime:  'Runtime-karta',
 
     // ── Search ────────────────────────────────────────────────────────────
     search_placeholder: 'Sök fil eller mapp…',

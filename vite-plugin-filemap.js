@@ -161,6 +161,169 @@ function resolveImport(fromDir, spec) {
   return null
 }
 
+// ── Runtime graph ─────────────────────────────────────────────────────────────
+
+const DB_PACKAGES = new Set([
+  'pg', 'mysql', 'mysql2', 'sqlite3', 'better-sqlite3',
+  'knex', 'sequelize', 'mongoose',
+  '@prisma/client', 'typeorm', 'drizzle-orm',
+])
+
+const API_PACKAGES = new Set([
+  'axios', 'ky', 'node-fetch', 'got', 'superagent', 'undici',
+  'node:http', 'node:https', 'http', 'https',
+])
+
+/**
+ * Analyse a single ts-morph SourceFile for runtime cost indicators.
+ * Returns { dbCallCount, apiCallCount, cyclomatic }
+ */
+function detectRuntimeCalls(sf) {
+  const { SyntaxKind } = sf.getProject().getTypeChecker()._context ?? {}
+
+  let dbCallCount = 0
+  let apiCallCount = 0
+
+  // Check import declarations for known DB/API packages
+  for (const decl of sf.getImportDeclarations()) {
+    const spec = decl.getModuleSpecifierValue()
+    // Strip subpath (e.g. '@prisma/client/edge' → '@prisma/client')
+    const root = spec.startsWith('@')
+      ? spec.split('/').slice(0, 2).join('/')
+      : spec.split('/')[0]
+    if (DB_PACKAGES.has(spec) || DB_PACKAGES.has(root)) dbCallCount++
+    if (API_PACKAGES.has(spec) || API_PACKAGES.has(root)) apiCallCount++
+  }
+
+  // Also detect built-in fetch() calls (no import needed)
+  const text = sf.getText()
+  // Simple heuristic: count occurrences of standalone fetch( calls
+  const fetchMatches = text.match(/\bfetch\s*\(/g)
+  if (fetchMatches) apiCallCount += fetchMatches.length
+
+  // Cyclomatic complexity: count branching constructs
+  const BRANCH_KINDS = [
+    'IfStatement',
+    'ConditionalExpression',
+    'ForStatement',
+    'ForInStatement',
+    'ForOfStatement',
+    'WhileStatement',
+    'DoStatement',
+    'CatchClause',
+    'CaseClause',
+  ]
+  let cyclomatic = 1 // base complexity
+  for (const kindName of BRANCH_KINDS) {
+    try {
+      // ts-morph exposes getDescendantsOfKind via string kind names
+      const nodes = sf.getDescendants().filter(n => n.getKindName() === kindName)
+      cyclomatic += nodes.length
+    } catch { /* skip */ }
+  }
+
+  return { dbCallCount, apiCallCount, cyclomatic }
+}
+
+/**
+ * Async, chunked runtime graph builder.
+ * Returns { nodes, treeEdges, runtimeEdges }
+ */
+async function buildRuntimeGraph(rootDir) {
+  // Collect JS/TS files
+  const allFiles = []
+  const dirStack = [rootDir]
+  while (dirStack.length) {
+    const dir = dirStack.pop()
+    let entries
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }) } catch { continue }
+    for (const e of entries) {
+      if (IGNORE.has(e.name) || e.name.startsWith('.')) continue
+      const full = path.join(dir, e.name)
+      if (e.isDirectory()) dirStack.push(full)
+      else if (JS_TS_EXTS.includes(path.extname(e.name))) allFiles.push(full)
+    }
+  }
+
+  const project = new Project({
+    skipAddingFilesFromTsConfig: true,
+    skipFileDependencyResolution: true,
+    useInMemoryFileSystem: false,
+  })
+  for (let i = 0; i < allFiles.length; i += CHUNK) {
+    for (const f of allFiles.slice(i, i + CHUNK)) {
+      try { project.addSourceFileAtPath(f) } catch { /* skip */ }
+    }
+    await tick()
+  }
+
+  const fileKeySet = new Set(allFiles.map((f) => path.relative(rootDir, f)))
+
+  // Analyse each file
+  const runtimeData = {}
+  const sourceFiles = project.getSourceFiles()
+  for (let i = 0; i < sourceFiles.length; i += CHUNK) {
+    for (const sf of sourceFiles.slice(i, i + CHUNK)) {
+      const rel = path.relative(rootDir, sf.getFilePath())
+      if (!fileKeySet.has(rel)) continue
+      try {
+        runtimeData[rel] = detectRuntimeCalls(sf)
+      } catch {
+        runtimeData[rel] = { dbCallCount: 0, apiCallCount: 0, cyclomatic: 1 }
+      }
+    }
+    await tick()
+  }
+
+  // Build tree
+  const { nodes: treeNodes, edges: treeEdges } = walkDir(rootDir)
+
+  // Augment file nodes with runtime data + score
+  const nodes = treeNodes
+    .filter((n) => n.attributes.kind !== 'file' || fileKeySet.has(n.key))
+    .map((n) => {
+      if (n.attributes.kind === 'file') {
+        const { dbCallCount = 0, apiCallCount = 0, cyclomatic = 1 } = runtimeData[n.key] ?? {}
+        const runtimeScore = dbCallCount * 3 + apiCallCount * 2 + cyclomatic * 0.5
+        return { ...n, attributes: { ...n.attributes, dbCallCount, apiCallCount, cyclomatic, runtimeScore } }
+      }
+      return n
+    })
+
+  // Count callers of DB and API virtual nodes
+  let dbCallerCount = 0
+  let apiCallerCount = 0
+  for (const { dbCallCount, apiCallCount } of Object.values(runtimeData)) {
+    if (dbCallCount > 0) dbCallerCount++
+    if (apiCallCount > 0) apiCallerCount++
+  }
+
+  // Add virtual nodes
+  nodes.push(
+    { key: '__db__', attributes: { label: 'Database', kind: 'virtual-db', ext: null, depth: 1, dbCallerCount } },
+    { key: '__api__', attributes: { label: 'External API', kind: 'virtual-api', ext: null, depth: 1, apiCallerCount } },
+  )
+
+  const nodeKeys = new Set(nodes.map((n) => n.key))
+
+  // treeEdges: connect virtual nodes to root + filter valid
+  const allTreeEdges = [
+    ...treeEdges.filter((e) => nodeKeys.has(e.source) && nodeKeys.has(e.target)),
+    { source: '__root__', target: '__db__' },
+    { source: '__root__', target: '__api__' },
+  ]
+
+  // runtimeEdges: file → __db__ or __api__
+  const runtimeEdges = []
+  for (const { key, attributes } of nodes) {
+    if (attributes.kind !== 'file') continue
+    if (attributes.dbCallCount > 0) runtimeEdges.push({ source: key, target: '__db__' })
+    if (attributes.apiCallCount > 0) runtimeEdges.push({ source: key, target: '__api__' })
+  }
+
+  return { nodes, treeEdges: allTreeEdges, runtimeEdges }
+}
+
 // ── Shared path validation helper ─────────────────────────────────────────────
 function validatePath(requested, rootDir) {
   if (!requested) return { target: rootDir }
@@ -200,6 +363,21 @@ export function fileMapPlugin(rootDir) {
           const { target, error } = validatePath(url.searchParams.get('path'), rootDir)
           if (error) { res.statusCode = 400; res.end(JSON.stringify({ error })); return }
           const data = await buildDepGraph(target)
+          data.root = target
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify(data))
+        } catch (e) {
+          res.statusCode = 500
+          res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+
+      server.middlewares.use('/api/runtimegraph', async (req, res) => {
+        try {
+          const url = new URL(req.url, 'http://localhost')
+          const { target, error } = validatePath(url.searchParams.get('path'), rootDir)
+          if (error) { res.statusCode = 400; res.end(JSON.stringify({ error })); return }
+          const data = await buildRuntimeGraph(target)
           data.root = target
           res.setHeader('Content-Type', 'application/json')
           res.end(JSON.stringify(data))

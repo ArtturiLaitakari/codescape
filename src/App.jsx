@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import FileMap from './components/FileMap.jsx'
 import DependencyHeatmap from './components/DependencyHeatmap.jsx'
+import RuntimeHeatmap from './components/RuntimeHeatmap.jsx'
 import { t } from './lib/i18n.js'
 
 const LANG_FLAGS = { fi: '🇫🇮', en: '🇬🇧', sv: '🇸🇪' }
@@ -8,8 +9,9 @@ const LANG_LABELS = { fi: 'Suomi', en: 'English', sv: 'Svenska' }
 const LANGS = ['fi', 'en', 'sv']
 
 const VIEWS = [
-  { id: 'filemap', labelKey: 'tab_filemap' },
-  { id: 'heatmap', labelKey: 'tab_heatmap' },
+  { id: 'filemap',  labelKey: 'tab_filemap' },
+  { id: 'heatmap',  labelKey: 'tab_heatmap' },
+  { id: 'runtime',  labelKey: 'tab_runtime'  },
 ]
 
 export default function App() {
@@ -22,8 +24,9 @@ export default function App() {
     <div style={{ position: 'relative', width: '100vw', height: '100vh' }}>
       <TabNav views={VIEWS} active={activeView} onChange={setActiveView} lang={lang} onLangChange={setLang} />
 
-      {activeView === 'filemap' && <FileMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} />}
-      {activeView === 'heatmap' && <DependencyHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} />}
+      {activeView === 'filemap'  && <FileMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} />}
+      {activeView === 'heatmap'  && <DependencyHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} />}
+      {activeView === 'runtime'  && <RuntimeHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} />}
     </div>
   )
 }
