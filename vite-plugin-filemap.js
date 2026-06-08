@@ -325,9 +325,18 @@ function detectFileFunctions(sf) {
   }
 
   // ── File-level complexity metrics ────────────────────────────────────────
+  // cyclomaticOf() uses getDescendants() so an outer function's CC includes
+  // all branches from every nested function inside it — making container
+  // functions always appear as the most complex. For maxCyclomatic we only
+  // consider leaf functions (no other function is fully contained within them).
+  const isLeaf = (f) =>
+    !functions.some(g => g !== f && g.startLine >= f.startLine && g.endLine <= f.endLine)
+  const leafFunctions = functions.filter(isLeaf)
+
   const totalCyclomatic = functions.reduce((s, f) => s + f.cyclomatic, 0)
   const avgCyclomatic   = functions.length ? +(totalCyclomatic / functions.length).toFixed(1) : 1
-  const maxCyclomatic   = functions.length ? Math.max(...functions.map(f => f.cyclomatic)) : 1
+  const maxCyclomatic   = (leafFunctions.length ? leafFunctions : functions)
+    .reduce((m, f) => Math.max(m, f.cyclomatic), 1)
   const totalLines      = functions.reduce((s, f) => s + f.lines, 0)
 
   // Halstead-lite: count unique operators/operands (rough proxy)
@@ -413,26 +422,14 @@ function detectRuntimeCalls(sf) {
   const fetchMatches = text.match(/\bfetch\s*\(/g)
   if (fetchMatches) apiCallCount += fetchMatches.length
 
-  // Cyclomatic complexity: count branching constructs
-  const BRANCH_KINDS = [
-    'IfStatement',
-    'ConditionalExpression',
-    'ForStatement',
-    'ForInStatement',
-    'ForOfStatement',
-    'WhileStatement',
-    'DoStatement',
-    'CatchClause',
-    'CaseClause',
-  ]
-  let cyclomatic = 1 // base complexity
-  for (const kindName of BRANCH_KINDS) {
-    try {
-      // ts-morph exposes getDescendantsOfKind via string kind names
-      const nodes = sf.getDescendants().filter(n => n.getKindName() === kindName)
-      cyclomatic += nodes.length
-    } catch { /* skip */ }
-  }
+  // Cyclomatic complexity: use max per-function CC (worst-case hotspot).
+  // A file-wide branch sum inflates the score for classes; avg hides outliers.
+  // Max CC best represents the riskiest function in the file.
+  let cyclomatic = 1
+  try {
+    const { complexity } = detectFileFunctions(sf)
+    cyclomatic = complexity?.maxCyclomatic ?? 1
+  } catch { /* skip */ }
 
   return { dbCallCount, apiCallCount, cyclomatic }
 }
@@ -569,6 +566,79 @@ export function fileMapPlugin(rootDir) {
         } catch (e) {
           res.statusCode = 500
           res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+
+      server.middlewares.use('/api/runtimegraph/stream', async (req, res) => {
+        try {
+          const url = new URL(req.url, 'http://localhost')
+          const { target, error } = validatePath(url.searchParams.get('path'), rootDir)
+          if (error) { res.statusCode = 400; res.end(JSON.stringify({ error })); return }
+
+          res.setHeader('Content-Type', 'text/event-stream')
+          res.setHeader('Cache-Control', 'no-cache')
+          res.setHeader('Connection', 'keep-alive')
+          res.setHeader('X-Accel-Buffering', 'no')
+          const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`)
+
+          // 1. Send tree + virtual placeholder nodes immediately
+          const { nodes: treeNodes, edges: treeEdges } = walkDir(target)
+          const allFiles = collectJsTsFiles(target)
+          const fileKeySet = new Set(allFiles.map(f => path.relative(target, f)))
+          const initNodes = [
+            ...treeNodes.filter(n => n.attributes.kind !== 'file' || fileKeySet.has(n.key)),
+            { key: '__db__',  attributes: { label: 'Database',     kind: 'virtual-db',  ext: null, depth: 1, dbCallerCount: 0  } },
+            { key: '__api__', attributes: { label: 'External API', kind: 'virtual-api', ext: null, depth: 1, apiCallerCount: 0 } },
+          ]
+          const initEdges = [
+            ...treeEdges,
+            { source: '__root__', target: '__db__'  },
+            { source: '__root__', target: '__api__' },
+          ]
+          send({ type: 'tree', total: allFiles.length, nodes: initNodes, treeEdges: initEdges, root: target })
+
+          // 2. Build ts-morph project in chunks
+          const project = new Project({
+            skipAddingFilesFromTsConfig: true,
+            skipFileDependencyResolution: true,
+            useInMemoryFileSystem: false,
+          })
+          for (let i = 0; i < allFiles.length; i += CHUNK) {
+            for (const f of allFiles.slice(i, i + CHUNK)) {
+              try { project.addSourceFileAtPath(f) } catch { /* skip */ }
+            }
+            await tick()
+          }
+
+          // 3. Analyse in streaming chunks
+          const sourceFiles = project.getSourceFiles().filter(sf =>
+            fileKeySet.has(path.relative(target, sf.getFilePath())))
+          const runtimeData = {}
+          const STREAM_CHUNK = 20
+          for (let i = 0; i < sourceFiles.length; i += STREAM_CHUNK) {
+            const batchData = {}
+            for (const sf of sourceFiles.slice(i, i + STREAM_CHUNK)) {
+              const rel = path.relative(target, sf.getFilePath())
+              try { runtimeData[rel] = detectRuntimeCalls(sf) }
+              catch { runtimeData[rel] = { dbCallCount: 0, apiCallCount: 0, cyclomatic: 1 } }
+              batchData[rel] = runtimeData[rel]
+            }
+            send({ type: 'batch', done: Math.min(i + STREAM_CHUNK, sourceFiles.length), total: sourceFiles.length, runtimeData: batchData })
+            await tick()
+          }
+
+          // 4. Compute runtime edges + caller counts, send done
+          let dbCallerCount = 0, apiCallerCount = 0
+          const runtimeEdges = []
+          for (const [key, { dbCallCount, apiCallCount }] of Object.entries(runtimeData)) {
+            if (dbCallCount  > 0) { dbCallerCount++;  runtimeEdges.push({ source: key, target: '__db__'  }) }
+            if (apiCallCount > 0) { apiCallerCount++; runtimeEdges.push({ source: key, target: '__api__' }) }
+          }
+          send({ type: 'done', root: target, runtimeEdges, dbCallerCount, apiCallerCount })
+          res.end()
+        } catch (e) {
+          try { res.write(`data: ${JSON.stringify({ type: 'error', error: e.message })}\n\n`) } catch {}
+          res.end()
         }
       })
 

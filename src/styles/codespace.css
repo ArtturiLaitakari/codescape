@@ -19,7 +19,8 @@
 /* ── App + view shell + per-view accent ───────────────────────────────────── */
 
 .cs-app {
-  position: relative;
+  display: flex;
+  flex-direction: column;
   width: 100vw;
   height: 100vh;
 }
@@ -27,7 +28,8 @@
 .cs-view {
   position: relative;
   width: 100vw;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   background: var(--cs-bg);
 }
 
@@ -487,19 +489,17 @@
 /* ── Tab navigation ───────────────────────────────────────────────────────── */
 
 .cs-tabnav {
-  position: absolute;
-  top: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 20;
   display: flex;
+  align-self: center;
   align-items: center;
   gap: 2px;
+  margin: 6px 0;
   padding: 3px;
   background: var(--cs-tab-bg);
   border: 1px solid var(--cs-border);
   border-radius: 8px;
   backdrop-filter: blur(6px);
+  flex-shrink: 0;
 }
 
 .cs-tab {

@@ -44,6 +44,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
   const [fileList, setFileList]     = useState([])  // [{ key, label, color, runtimeScore, tScore, ... }]
   const [selectedBand, setSelectedBand] = useState(null)
   const [selectedFile, setSelectedFile] = useState(null)
+  const [scanProgress, setScanProgress] = useState(null)  // null | { done, total }
 
   // key → { dbCallCount, apiCallCount, cyclomatic, runtimeScore } for virtual node callers lookup
   const nodeAttrsRef = useRef({})
@@ -52,7 +53,9 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     setHovered({ key, ...attrs })
   }, [])
   const onLeaveNode = useCallback(() => setHovered(null), [])
-  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready'); onViewReady?.() }, [onViewReady])
+  // onReady fires when Sigma first renders — dismiss the full-screen spinner,
+  // but don't set status 'ready' yet if SSE streaming is still in progress.
+  const onReady = useCallback((count) => { setNodeCount(count); onViewReady?.() }, [onViewReady])
 
   const searchResetRef = useRef(null)
   const activeRootRef = useRef(activeRoot)
@@ -70,88 +73,107 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, {
+  const { load, getNodes, setFilter, patchNodes, addEdges } = useSigmaGraph(containerRef, {
     onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
   })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
+    setScanProgress(null)
     setHovered(null)
-    let cancelled = false
+
     const url = targetPath
-      ? `/api/runtimegraph?path=${encodeURIComponent(targetPath)}`
-      : '/api/runtimegraph'
+      ? `/api/runtimegraph/stream?path=${encodeURIComponent(targetPath)}`
+      : '/api/runtimegraph/stream'
 
-    fetch(url)
-      .then((r) => r.json())
-      .then((body) => {
-        if (cancelled) return
-        if (body.error) throw new Error(body.error)
-        setActiveRoot(body.root)
-        setInputValue(body.root)
-        onRootChange?.(body.root)
+    const es = new EventSource(url)
 
-        // Index node attributes for tooltip lookups
+    // Accumulated runtime data + running max score (both mutable, not React state)
+    const accData = {}  // key → { dbCallCount, apiCallCount, cyclomatic, runtimeScore }
+    let maxScore = 0
+
+    function runtimeAttrs(key, d) {
+      const rs = d.dbCallCount * 3 + d.apiCallCount * 2 + d.cyclomatic * 0.5
+      const base = nodeAttrsRef.current[key] ?? { kind: 'file' }
+      return { ...d, runtimeScore: rs, color: runtimeColor(rs, maxScore), size: runtimeSize(rs, nodeSize(base)) }
+    }
+
+    es.onmessage = (e) => {
+      let msg
+      try { msg = JSON.parse(e.data) } catch { return }
+
+      if (msg.type === 'tree') {
+        // Index attrs, build initial graph with neutral file colours
         const attrsMap = {}
-        for (const { key, attributes } of body.nodes) attrsMap[key] = attributes
+        for (const { key, attributes } of msg.nodes) attrsMap[key] = attributes
         nodeAttrsRef.current = attrsMap
 
-        // Compute max score from file nodes only
-        const maxScore = body.nodes.reduce((m, n) => {
-          return n.attributes.kind === 'file' ? Math.max(m, n.attributes.runtimeScore ?? 0) : m
-        }, 0)
-
-        // Map nodes: override color/size based on kind
-        const nodes = body.nodes.map(({ key, attributes }) => {
-          if (attributes.kind === 'file') {
-            return {
-              key,
-              attributes: {
-                ...attributes,
-                color: runtimeColor(attributes.runtimeScore ?? 0, maxScore),
-                size:  runtimeSize(attributes.runtimeScore ?? 0, nodeSize(attributes)),
-              },
-            }
-          }
-          if (attributes.kind === 'virtual-db') {
-            return { key, attributes: { ...attributes, color: VIRTUAL_DB_COLOR,  size: VIRTUAL_NODE_SIZE } }
-          }
-          if (attributes.kind === 'virtual-api') {
-            return { key, attributes: { ...attributes, color: VIRTUAL_API_COLOR, size: VIRTUAL_NODE_SIZE } }
-          }
-          // dirs / root
-          const dirColor = attributes.kind === 'dir'
-            ? '#334155'
-            : attributes.kind === 'dir-empty'
-              ? '#1e293b'
-              : nodeColor(attributes)
-          return { key, attributes: { ...attributes, color: dirColor, size: nodeSize(attributes) } }
+        const nodes = msg.nodes.map(({ key, attributes: a }) => {
+          if (a.kind === 'virtual-db')  return { key, attributes: { ...a, color: VIRTUAL_DB_COLOR,  size: VIRTUAL_NODE_SIZE } }
+          if (a.kind === 'virtual-api') return { key, attributes: { ...a, color: VIRTUAL_API_COLOR, size: VIRTUAL_NODE_SIZE } }
+          if (a.kind === 'file') return { key, attributes: { ...a, color: '#334155', size: nodeSize(a) } }
+          const dc = a.kind === 'dir' ? '#334155' : a.kind === 'dir-empty' ? '#1e293b' : nodeColor(a)
+          return { key, attributes: { ...a, color: dc, size: nodeSize(a) } }
         })
+        load(nodes, msg.treeEdges, '__root__', [])
+        setActiveRoot(msg.root)
+        setInputValue(msg.root)
+        onRootChange?.(msg.root)
+        setScanProgress({ done: 0, total: msg.total })
+        setStatus('scanning')
+      }
 
-        load(nodes, body.treeEdges, '__root__', body.runtimeEdges)
+      if (msg.type === 'batch') {
+        // Accumulate new data, update running maxScore
+        for (const [key, d] of Object.entries(msg.runtimeData)) {
+          const rs = d.dbCallCount * 3 + d.apiCallCount * 2 + d.cyclomatic * 0.5
+          accData[key] = { ...d, runtimeScore: rs }
+          if (rs > maxScore) maxScore = rs
+        }
+        // Recolor ALL seen file nodes so relative scale stays correct
+        patchNodes(Object.entries(accData).map(([key, d]) => ({ key, attributes: runtimeAttrs(key, d) })))
+        setScanProgress({ done: msg.done, total: msg.total })
+      }
 
-        // Build sorted file list for the filter panel
-        const fileSorted = nodes
-          .filter(n => n.attributes.kind === 'file')
-          .map(n => ({
-            key: n.key,
-            label: n.attributes.label,
-            color: n.attributes.color,
-            runtimeScore: n.attributes.runtimeScore ?? 0,
-            tScore: maxScore > 0 ? (n.attributes.runtimeScore ?? 0) / maxScore : 0,
-            kind: n.attributes.kind,
-            ext: n.attributes.ext,
-            dbCallCount: n.attributes.dbCallCount,
-            apiCallCount: n.attributes.apiCallCount,
-            cyclomatic: n.attributes.cyclomatic,
-          }))
+      if (msg.type === 'done') {
+        // Update virtual node caller counts + add runtime edges
+        patchNodes([
+          { key: '__db__',  attributes: { dbCallerCount:  msg.dbCallerCount  } },
+          { key: '__api__', attributes: { apiCallerCount: msg.apiCallerCount } },
+        ])
+        addEdges(msg.runtimeEdges)
+
+        // Build file list from accumulated data
+        const fileSorted = Object.entries(accData)
+          .map(([key, d]) => {
+            const na = nodeAttrsRef.current[key] ?? {}
+            return {
+              key, label: na.label ?? key.split('/').pop(),
+              color: runtimeColor(d.runtimeScore, maxScore),
+              runtimeScore: d.runtimeScore,
+              tScore: maxScore > 0 ? d.runtimeScore / maxScore : 0,
+              kind: 'file', ext: na.ext,
+              dbCallCount: d.dbCallCount, apiCallCount: d.apiCallCount, cyclomatic: d.cyclomatic,
+            }
+          })
           .sort((a, b) => b.runtimeScore - a.runtimeScore)
         setFileList(fileSorted)
-      })
-      .catch((e) => { if (!cancelled) setStatus(`error: ${e.message}`) })
+        setScanProgress(null)
+        setStatus('ready')
+        es.close()
+      }
 
-    return () => { cancelled = true }
-  }, [load, onRootChange])
+      if (msg.type === 'error') {
+        setStatus(`error: ${msg.error}`)
+        setScanProgress(null)
+        es.close()
+      }
+    }
+
+    es.onerror = () => { setStatus('error: connection failed'); setScanProgress(null); es.close() }
+
+    return () => es.close()
+  }, [load, patchNodes, addEdges, onRootChange])
 
   useEffect(() => {
     const cleanup = loadGraph(sharedRoot ?? '')
@@ -178,6 +200,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     <div className="cs-view cs-view--runtime">
       <RuntimeHeader
         status={status}
+        scanProgress={scanProgress}
         nodeCount={nodeCount}
         inputValue={inputValue}
         activeRoot={activeRoot}
@@ -228,19 +251,22 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function RuntimeHeader({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
+function RuntimeHeader({ status, scanProgress, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
   const loading = status === 'loading'
+  const statusText = status === 'ready'
+    ? tf('nodes_runtime', { count: nodeCount }, lang)
+    : scanProgress
+      ? `${t('scanning', lang)} ${scanProgress.done} / ${scanProgress.total}`
+      : status === 'loading'
+        ? t('scanning', lang)
+        : status
   return (
     <div className="cs-header">
       <div className="cs-header__top">
         <span className="cs-title">Codespace</span>
         <span className="cs-subtitle">{t('subtitle_runtime', lang)}</span>
         <span className={`cs-status${status.startsWith('error') ? ' cs-status--error' : ''}`}>
-          {status === 'ready'
-            ? tf('nodes_runtime', { count: nodeCount }, lang)
-            : status === 'loading'
-              ? t('scanning', lang)
-              : status}
+          {statusText}
         </span>
       </div>
       <GraphHeaderForm
@@ -276,7 +302,7 @@ function RuntimeTooltip({ hovered, lang }) {
             <MetricRow label={t('runtime_score', lang)} value={(hovered.runtimeScore ?? 0).toFixed(1)} color='#f97316' />
             <MetricRow label={t('db_calls',       lang)} value={hovered.dbCallCount  ?? 0} color={VIRTUAL_DB_COLOR}  />
             <MetricRow label={t('api_calls',      lang)} value={hovered.apiCallCount ?? 0} color={VIRTUAL_API_COLOR} />
-            <MetricRow label={t('cyclomatic',     lang)} value={hovered.cyclomatic   ?? 1} color='#94a3b8' />
+            <MetricRow label={t('max_cyclomatic',  lang)} value={hovered.cyclomatic   ?? 1} color='#94a3b8' />
           </div>
         </>
       )}

@@ -226,11 +226,13 @@ function MindMap({ data, hovered, onHover, filePath, activeRoot }) {
                 fill="#e2e8f0" style={{ fontFamily: 'ui-monospace, monospace' }}>
                 {trim(n.label)}
               </text>
-              <text x={lx} y={n.y + fs - 2} textAnchor="start" fontSize={fs - 2}
-                fill={n.color} style={{ fontFamily: 'monospace' }}>
-                {n.isRoot ? `comp CC:\u00a0${n.cyclomatic}` : `CC:\u00a0${n.cyclomatic}`}
-              </text>
-              <text x={lx} y={n.y + fs * 2 - 2} textAnchor="start" fontSize={fs - 2}
+              {!n.isRoot && (
+                <text x={lx} y={n.y + fs - 2} textAnchor="start" fontSize={fs - 2}
+                  fill={n.color} style={{ fontFamily: 'monospace' }}>
+                  {`CC:\u00a0${n.cyclomatic}`}
+                </text>
+              )}
+              <text x={lx} y={n.isRoot ? n.y + fs - 2 : n.y + fs * 2 - 2} textAnchor="start" fontSize={fs - 2}
                 fill="#64748b" style={{ fontFamily: 'monospace' }}>
                 {`row:\u00a0${n.lines}`}
               </text>

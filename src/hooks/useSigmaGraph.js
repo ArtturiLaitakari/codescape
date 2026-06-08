@@ -248,5 +248,30 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
     sigma.getCamera().animate({ x, y, ratio: Math.min(sigma.getCamera().ratio, 0.8) }, { duration: 350 })
   }, [getImpactZone])
 
-  return { load, focusNode, getNodes, setFilter }
+  const patchNodes = useCallback((updates) => {
+    const graph = graphRef.current
+    const sigma = sigmaRef.current
+    if (!graph || !sigma) return
+    for (const { key, attributes } of updates) {
+      if (!graph.hasNode(key)) continue
+      for (const [attr, val] of Object.entries(attributes)) {
+        graph.setNodeAttribute(key, attr, val)
+      }
+    }
+    sigma.refresh()
+  }, [])
+
+  const addEdges = useCallback((edges) => {
+    const graph = graphRef.current
+    const sigma = sigmaRef.current
+    if (!graph || !sigma) return
+    edges.forEach(({ source, target }) => {
+      if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
+        graph.addDirectedEdge(source, target, { color: '#475569', size: 0.5 })
+      }
+    })
+    sigma.refresh()
+  }, [])
+
+  return { load, focusNode, getNodes, setFilter, patchNodes, addEdges }
 }
