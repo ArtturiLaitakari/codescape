@@ -73,15 +73,6 @@ function snapshotNodes(graph) {
   return out
 }
 
-/** Snapshot current (x, y) per node — used to scale positions when the camera zooms. */
-function snapshotPositions(graph) {
-  const base = {}
-  graph.forEachNode((n) => {
-    base[n] = { x: graph.getNodeAttribute(n, 'x'), y: graph.getNodeAttribute(n, 'y') }
-  })
-  return base
-}
-
 /** Compute the focus state object for a clicked / programmatically-focused node. */
 function computeFocus(node, graph, getImpactZone) {
   if (getImpactZone) {
@@ -192,7 +183,8 @@ export function useSigmaGraph(containerRef, {
   useEffect(() => () => destroy(), [destroy])
 
   // ── Event wiring ───────────────────────────────────────────────────────────
-  const attachZoomSpread = useCallback((sigma, graph, basePositions, cam) => {
+  const attachZoomSpread = useCallback((sigma, graph, layoutLUTs, cam) => {
+    const { cosLUT, sinLUT, radLUT } = layoutLUTs
     let lastRatio = sigma.getCamera().ratio
     sigma.getCamera().on('updated', () => {
       const ratio = sigma.getCamera().ratio
@@ -200,9 +192,11 @@ export function useSigmaGraph(containerRef, {
       if (Math.abs(ratio - lastRatio) / lastRatio < SPREAD_THRESHOLD) return
       lastRatio = ratio
       const spread = 1 / ratio
+      // LUT-based rescale: cos/sin computed once at layout time, here just cos * r * spread
       graph.forEachNode((n) => {
-        graph.setNodeAttribute(n, 'x', basePositions[n].x * spread)
-        graph.setNodeAttribute(n, 'y', basePositions[n].y * spread)
+        if (radLUT[n] === undefined) return  // root node stays at (0,0)
+        graph.setNodeAttribute(n, 'x', cosLUT[n] * radLUT[n] * spread)
+        graph.setNodeAttribute(n, 'y', sinLUT[n] * radLUT[n] * spread)
       })
       sigma.refresh({ skipIndexation: false })
     })
@@ -245,7 +239,7 @@ export function useSigmaGraph(containerRef, {
     destroy()
 
     const graph = buildGraph(nodes, edges)
-    radialTreeLayout(graph, rootKey)
+    const layoutLUTs = radialTreeLayout(graph, rootKey)
 
     graphRef.current = graph
     nodesRef.current = snapshotNodes(graph)
@@ -253,7 +247,6 @@ export function useSigmaGraph(containerRef, {
     // Extra edges (cycles allowed) are added AFTER layout so they don't perturb it
     addEdgesSafe(graph, extraEdges, EXTRA_EDGE_COLOR, 0.5)
 
-    const basePositions = snapshotPositions(graph)
     const cam = { ratio: 1 }  // mutated by zoom listener, read by node reducer
 
     const sigma = new Sigma(graph, containerRef.current, {
@@ -265,7 +258,7 @@ export function useSigmaGraph(containerRef, {
     })
     sigmaRef.current = sigma
 
-    attachZoomSpread(sigma, graph, basePositions, cam)
+    attachZoomSpread(sigma, graph, layoutLUTs, cam)
     attachInteractionHandlers(sigma, graph)
 
     onReady?.(graph.order)

@@ -1,27 +1,20 @@
 /**
- * Reingold–Tilford radial layout — guarantees no edge crossings.
- *
- * Pass 1 (bottom-up): each node claims angular width =
- *   max(sum of children widths, minimum arc at that ring)
- * Pass 2 (top-down): place each node at the centre of its wedge with
- *   deterministic jitter so the result looks organic rather than mechanical.
- *
- * @param {import('graphology').default} graph - directed graphology graph
- * @param {string} rootKey - key of the root node
- * @param {number} levelRadius - radial distance between depth rings (px)
- * @param {number} nodeGap - minimum pixel gap between leaf nodes on the same ring
+ * Reingold–Tilford radial layout.
+ * Each node claims angular width = max(sum of children widths, min arc for the ring).
+ * Nodes are placed at the centre of their wedge with deterministic jitter for an
+ * organic look. BFS builds the spanning tree so cycles in the graph are ignored.
  */
 export function radialTreeLayout(graph, rootKey, levelRadius = 90, nodeGap = 22) {
-  // Build tree-only children map from BFS — stops at first visit so cycles are ignored.
-  // Import edges in the heatmap graph would otherwise cause infinite recursion.
+  // ── 1. Spanning tree via BFS (ignore back/cross edges) ────────────────────
   const children = {}
   const depth = {}
   graph.forEachNode((n) => { children[n] = [] })
 
-  // BFS from root: only add each node once as a child (ignore back/cross edges)
   const bfsQueue = [rootKey]
   const inTree = new Set([rootKey])
   depth[rootKey] = 0
+  const bfsOrder = [rootKey]  // BFS order doubles as reverse-post-order parent list
+
   while (bfsQueue.length) {
     const n = bfsQueue.shift()
     for (const nb of graph.outNeighbors(n)) {
@@ -30,72 +23,53 @@ export function radialTreeLayout(graph, rootKey, levelRadius = 90, nodeGap = 22)
         children[n].push(nb)
         depth[nb] = depth[n] + 1
         bfsQueue.push(nb)
+        bfsOrder.push(nb)
       }
     }
   }
 
-  // Pass 1 (bottom-up, iterative): compute required angular width per node.
-  // Post-order = process children before parents → iterative via explicit stack.
+  // ── 2. Bottom-up angular widths (reverse BFS = leaves first) ─────────────
   const angleWidth = {}
-  const postOrder = []
-  {
-    const stack = [rootKey]
-    const visited = new Set()
-    while (stack.length) {
-      const n = stack[stack.length - 1]
-      if (!visited.has(n)) {
-        visited.add(n)
-        for (const c of children[n]) stack.push(c)
-      } else {
-        stack.pop()
-        postOrder.push(n)
-      }
-    }
-  }
-  for (const node of postOrder) {
-    const d = depth[node] ?? 0
-    const r = (d + 1) * levelRadius
-    const minAngle = nodeGap / r
-    const ch = children[node]
-    if (ch.length === 0) {
-      angleWidth[node] = minAngle
-    } else {
-      const sum = ch.reduce((s, c) => s + (angleWidth[c] ?? 0), 0)
-      angleWidth[node] = Math.max(sum, minAngle)
-    }
+  for (const node of [...bfsOrder].reverse()) {
+    const minAngle = nodeGap / ((depth[node] + 1) * levelRadius)
+    const childSum = children[node].reduce((s, c) => s + (angleWidth[c] ?? 0), 0)
+    angleWidth[node] = Math.max(childSum, minAngle)
   }
 
-  // Scale all widths if root's children would overflow 2π (iterative BFS rescale)
-  const rootChildTotal = children[rootKey].reduce((s, c) => s + (angleWidth[c] ?? 0), 0) || 1
-  if (rootChildTotal > 2 * Math.PI) {
-    const scale = (2 * Math.PI) / rootChildTotal
-    const rescaleStack = [...children[rootKey]]
-    while (rescaleStack.length) {
-      const n = rescaleStack.pop()
-      angleWidth[n] = (angleWidth[n] ?? 0) * scale
-      for (const c of children[n]) rescaleStack.push(c)
-    }
+  // Clamp to 2π: scale every node's width proportionally if root overflows
+  const rootTotal = children[rootKey].reduce((s, c) => s + angleWidth[c], 0) || 1
+  if (rootTotal > 2 * Math.PI) {
+    const scale = (2 * Math.PI) / rootTotal
+    for (const n of bfsOrder) angleWidth[n] *= scale
   }
 
-  // Pass 2 (top-down, iterative): place each node at the centre of its wedge.
+  // ── 3. Top-down placement — each node at the centre of its wedge ─────────
+  // Precompute cos/sin/r per node (LUTs) — zoom-spread reuses them with a single multiply
+  const cosLUT = {}
+  const sinLUT = {}
+  const radLUT = {}  // effective radius per node, including jitter
+
   const pos = { [rootKey]: { x: 0, y: 0 } }
-  const used = children[rootKey].reduce((s, c) => s + (angleWidth[c] ?? 0), 0)
-  const placeStack = [{ node: rootKey, angleStart: -used / 2 }]
+  const rootSpan = children[rootKey].reduce((s, c) => s + angleWidth[c], 0)
+  const placeStack = [{ node: rootKey, angleStart: -rootSpan / 2 }]
+
   while (placeStack.length) {
     const { node, angleStart } = placeStack.pop()
     let a = angleStart
     for (const child of children[node]) {
-      const w = angleWidth[child] ?? 0
+      const w = angleWidth[child]
       const mid = a + w / 2
 
-      // Deterministic jitter from node key hash — stays inside wedge
+      // Deterministic per-node jitter — stays inside wedge, same result on every render
       let h = 0
       for (let i = 0; i < child.length; i++) h = (h * 31 + child.charCodeAt(i)) | 0
-      const rJitter = ((h & 0xff) / 255 - 0.5) * levelRadius * 0.6
-      const aJitter = (((h >> 8) & 0xff) / 255 - 0.5) * w * 0.4
+      const r = (depth[child] + 1) * levelRadius + ((h & 0xff) / 255 - 0.5) * levelRadius * 0.6
+      const angle = mid + (((h >> 8) & 0xff) / 255 - 0.5) * w * 0.4
 
-      const r = (depth[child] + 1) * levelRadius + rJitter
-      pos[child] = { x: Math.cos(mid + aJitter) * r, y: Math.sin(mid + aJitter) * r }
+      cosLUT[child] = Math.cos(angle)
+      sinLUT[child] = Math.sin(angle)
+      radLUT[child] = r
+      pos[child] = { x: cosLUT[child] * r, y: sinLUT[child] * r }
       placeStack.push({ node: child, angleStart: a })
       a += w
     }
@@ -106,4 +80,7 @@ export function radialTreeLayout(graph, rootKey, levelRadius = 90, nodeGap = 22)
     graph.setNodeAttribute(n, 'x', p.x)
     graph.setNodeAttribute(n, 'y', p.y)
   })
+
+  // Return LUTs so callers can rescale positions with a multiply instead of rerunning trig
+  return { cosLUT, sinLUT, radLUT }
 }
