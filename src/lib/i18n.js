@@ -294,3 +294,14 @@ export function t(key, lang = 'fi') {
 export function tf(key, vars, lang = 'fi') {
   return t(key, lang).replace(/\{(\w+)\}/g, (_, k) => vars[k] ?? '')
 }
+
+/** Build the impact status line shown in the header when a node is selected. */
+export function impactStatusMsg(selectedImpact, selectMode, lang) {
+  if (!selectedImpact) return null
+  const name = selectedImpact.node.split('/').pop()
+  const count = selectedImpact.count
+  if (selectMode === 'dir') {
+    return tf(count === 0 ? 'impact_dir_empty' : 'impact_dir_has', { name, count }, lang)
+  }
+  return tf(count === 0 ? 'impact_file_none' : 'impact_file_has', { name, count }, lang)
+}

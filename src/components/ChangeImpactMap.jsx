@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
-import { t, tf } from '../lib/i18n.js'
+import { t, tf, impactStatusMsg } from '../lib/i18n.js'
 import { buildAdjacency } from '../lib/impact-utils.js'
 import { useImpactZone } from '../hooks/useImpactZone.js'
 import { ImportTooltip } from './ImportTooltip.jsx'
@@ -161,12 +161,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
 
 function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, searchResetRef, onInputChange, onSelect, onSubmit, onReset }) {
   const loading = status === 'loading'
-  const name = selectedImpact?.node.split('/').pop() ?? ''
-  const statusMsg = selectedImpact
-    ? selectMode === 'dir'
-      ? tf(selectedImpact.count === 0 ? 'impact_dir_empty' : 'impact_dir_has', { name, count: selectedImpact.count }, lang)
-      : tf(selectedImpact.count === 0 ? 'impact_file_none' : 'impact_file_has', { name, count: selectedImpact.count }, lang)
-    : null
+  const statusMsg = impactStatusMsg(selectedImpact, selectMode, lang)
   return (
     <div className="cs-header">
       <div className="cs-header__top">
