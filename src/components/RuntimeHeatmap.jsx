@@ -234,8 +234,8 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
             searchResetRef.current?.()
             const isAlreadyPinned = pinned?.key === key
             setPinned(isAlreadyPinned ? null : { key, ...f })
-            if (!isAlreadyPinned) focusNode(key)
-            else focusNode(null)
+            // Always focus the clicked node — never clear from panel
+            focusNode(key)
           }}
           pinned={pinned}
           lang={lang}
@@ -255,7 +255,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function RuntimeHeader({ status, scanProgress, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
+function RuntimeHeader({ status, scanProgress, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSelect, onSubmit, onReset }) {
   const loading = status === 'loading'
   const statusText = status === 'ready'
     ? tf('nodes_runtime', { count: nodeCount }, lang)
@@ -282,6 +282,7 @@ function RuntimeHeader({ status, scanProgress, nodeCount, inputValue, activeRoot
         setFilter={setFilter}
         searchResetRef={searchResetRef}
         onInputChange={onInputChange}
+        onSelect={onSelect}
         onSubmit={onSubmit}
         onReset={onReset}
       />
@@ -290,8 +291,8 @@ function RuntimeHeader({ status, scanProgress, nodeCount, inputValue, activeRoot
 }
 
 function RuntimeTooltip({ hovered, lang }) {
-  const isFile   = hovered.kind === 'file'
-  const isVirtDb = hovered.kind === 'virtual-db'
+  const isFile    = hovered.kind === 'file'
+  const isVirtDb  = hovered.kind === 'virtual-db'
   const isVirtApi = hovered.kind === 'virtual-api'
 
   return (

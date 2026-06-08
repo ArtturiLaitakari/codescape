@@ -159,7 +159,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
+function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, searchResetRef, onInputChange, onSelect, onSubmit, onReset }) {
   const loading = status === 'loading'
   const name = selectedImpact?.node.split('/').pop() ?? ''
   const statusMsg = selectedImpact
@@ -191,6 +191,7 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
         setFilter={setFilter}
         searchResetRef={searchResetRef}
         onInputChange={onInputChange}
+        onSelect={onSelect}
         onSubmit={onSubmit}
         onReset={onReset}
       />

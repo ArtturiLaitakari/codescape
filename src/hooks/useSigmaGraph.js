@@ -4,6 +4,7 @@ import Sigma from 'sigma'
 import { radialTreeLayout } from '../lib/graph-layout.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 
+// ── Constants ────────────────────────────────────────────────────────────────
 const SIGMA_DEFAULTS = {
   renderEdgeLabels: false,
   defaultEdgeColor: '#334155',
@@ -15,8 +16,21 @@ const SIGMA_DEFAULTS = {
   maxCameraRatio: 100,
 }
 
-const SPREAD_THRESHOLD = 0.05  // only recompute when zoom changes >5%
-const MAX_NODE_SCREEN_PX = 40  // node pixel cap regardless of zoom
+const SPREAD_THRESHOLD   = 0.05  // only recompute layout spread when zoom changes >5%
+const MAX_NODE_SCREEN_PX = 40    // node pixel cap regardless of zoom
+const CLICK_STAGE_GUARD  = 300   // ms — ignore stage clicks right after programmatic focus
+const DIM_COLOR_ALPHA    = 0.2   // alpha for dimmed (non-focused / non-matched) nodes
+const FILTER_DIM_ALPHA   = 0.15  // alpha for nodes outside search filter
+const DIM_LABEL_COLOR    = '#1e3a5f'
+const DEFAULT_LABEL_COLOR = '#e2e8f0'
+const TREE_EDGE_COLOR    = '#334155'
+const EXTRA_EDGE_COLOR   = '#475569'
+
+// Impact zone depth → color: selected=gold, direct=orange, 2nd=amber, 3+=pale
+const IMPACT_COLORS = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
+const impactColor = (depth) => IMPACT_COLORS[Math.min(depth, IMPACT_COLORS.length - 1)]
+
+// ── Pure helpers ─────────────────────────────────────────────────────────────
 
 /** Append a 2-hex-digit alpha to a #rrggbb color (strips existing alpha first) */
 function withAlpha(hex, alpha) {
@@ -25,30 +39,147 @@ function withAlpha(hex, alpha) {
   return `#${base}${a}`
 }
 
-// Impact zone depth → color: selected=gold, direct=orange, 2nd=amber, 3+=pale
-const IMPACT_COLORS = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
-function impactColor(depth) {
-  return IMPACT_COLORS[Math.min(depth, IMPACT_COLORS.length - 1)]
+/** Build a directed graphology graph from node + tree-edge specs. */
+function buildGraph(nodes, edges) {
+  const graph = new Graph({ type: 'directed' })
+  nodes.forEach(({ key, attributes }) => {
+    graph.addNode(key, {
+      ...attributes,
+      x: 0, y: 0,
+      color: attributes.color ?? nodeColor(attributes),
+      size: attributes.size ?? nodeSize(attributes),
+      labelColor: DEFAULT_LABEL_COLOR,
+    })
+  })
+  addEdgesSafe(graph, edges, TREE_EDGE_COLOR, 1)
+  return graph
 }
 
+/** Add edges; skip duplicates and edges whose endpoints don't exist. */
+function addEdgesSafe(graph, edges, color, size) {
+  edges.forEach(({ source, target }) => {
+    if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
+      graph.addDirectedEdge(source, target, { color, size })
+    }
+  })
+}
+
+/** Snapshot a lightweight node list for the search bar. */
+function snapshotNodes(graph) {
+  const out = []
+  graph.forEachNode((key, attrs) => {
+    out.push({ key, label: attrs.label, kind: attrs.kind, ext: attrs.ext })
+  })
+  return out
+}
+
+/** Snapshot current (x, y) per node — used to scale positions when the camera zooms. */
+function snapshotPositions(graph) {
+  const base = {}
+  graph.forEachNode((n) => {
+    base[n] = { x: graph.getNodeAttribute(n, 'x'), y: graph.getNodeAttribute(n, 'y') }
+  })
+  return base
+}
+
+/** Compute the focus state object for a clicked / programmatically-focused node. */
+function computeFocus(node, graph, getImpactZone) {
+  if (getImpactZone) {
+    const impactZone = getImpactZone(node)
+    return { node, neighbors: new Set(impactZone.keys()), impactZone }
+  }
+  return { node, neighbors: new Set(graph.neighbors(node)), impactZone: null }
+}
+
+// ── Reducers (decide per-frame how each node/edge looks) ─────────────────────
+
+/** Apply focus/filter dimming + zoom-aware sizing to a single node. */
+function reduceNode(node, data, { focus, filter, camRatio }) {
+  const maxGraphSize = MAX_NODE_SCREEN_PX * camRatio
+  const scale = Math.pow(1 / camRatio, 0.4)
+  const result = { ...data, size: Math.min(data.size * scale, maxGraphSize) }
+
+  if (focus?.impactZone) {
+    const depth = focus.impactZone.get(node)
+    if (depth === undefined) {
+      result.color = withAlpha(data.color, DIM_COLOR_ALPHA)
+      result.labelColor = DIM_LABEL_COLOR
+    } else {
+      const c = impactColor(depth)
+      result.color = c
+      result.labelColor = c
+    }
+    return result
+  }
+
+  if (focus && node !== focus.node && !focus.neighbors.has(node)) {
+    result.color = withAlpha(data.color, DIM_COLOR_ALPHA)
+    result.labelColor = DIM_LABEL_COLOR
+    return result
+  }
+
+  if (!focus && filter && !filter.has(node)) {
+    result.color = withAlpha(data.color, FILTER_DIM_ALPHA)
+    result.labelColor = DIM_LABEL_COLOR
+  }
+  return result
+}
+
+/** Hide edges that aren't relevant to the current focus or search filter. */
+function reduceEdge(graph, edge, data, { focus, filter }) {
+  if (!focus && !filter) return data
+  const src = graph.source(edge)
+  const tgt = graph.target(edge)
+
+  if (focus?.impactZone) {
+    if (!focus.impactZone.has(src) || !focus.impactZone.has(tgt)) return { ...data, hidden: true }
+    return data
+  }
+  if (focus) {
+    if (src !== focus.node && tgt !== focus.node) return { ...data, hidden: true }
+    return data
+  }
+  // filter-only mode
+  if (!filter.has(src) && !filter.has(tgt)) return { ...data, hidden: true }
+  return data
+}
+
+// ── Hook ─────────────────────────────────────────────────────────────────────
+
 /**
- * Manages a Sigma graph instance tied to a DOM container.
- * Handles graph construction, layout, zoom-spread, and cleanup.
+ * Manages a Sigma graph instance bound to a DOM container.
  *
- * @param {React.RefObject} containerRef - ref to the Sigma mount element
- * @param {{ onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus }} callbacks
- * @returns {{ load: (nodes, edges, rootKey) => void }}
+ * @param {React.RefObject<HTMLElement>} containerRef
+ * @param {{
+ *   onEnterNode?: (key, attrs) => void,
+ *   onLeaveNode?: () => void,
+ *   onClickNode?: (key, attrs) => void,
+ *   onDoubleClickNode?: (key, attrs) => void,
+ *   onReady?: (nodeCount: number) => void,
+ *   onClearFocus?: () => void,
+ *   getImpactZone?: (key) => Map<string, number>,
+ * }} callbacks
+ * @returns {{
+ *   load: (nodes, edges, rootKey?, extraEdges?) => void,
+ *   focusNode: (key) => void,
+ *   getNodes: () => Array<{ key, label, kind, ext }>,
+ *   setFilter: (keys: Set<string> | null) => void,
+ *   patchNodes: (updates: Array<{ key, attributes }>) => void,
+ *   addEdges: (edges) => void,
+ * }}
  */
-export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode }) {
+export function useSigmaGraph(containerRef, {
+  onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode,
+} = {}) {
   const sigmaRef = useRef(null)
   const graphRef = useRef(null)
   const nodesRef = useRef([])
-  // Mutable ref so nodeReducer/edgeReducer always see the current value without
-  // needing to recreate the Sigma instance.
-  const focusRef = useRef(null)  // null | { node, neighbors: Set<string>, impactZone: Map|null }
-  const lastFocusTimeRef = useRef(0)  // guard: ignore clickStage fired right after focusNode
-  const filterRef = useRef(null)  // null | Set<string> — keys that match the search query
+  // Mutable refs so reducers always see the current value without recreating Sigma
+  const focusRef        = useRef(null)  // null | { node, neighbors: Set<string>, impactZone: Map|null }
+  const filterRef       = useRef(null)  // null | Set<string>
+  const lastFocusTimeRef = useRef(0)    // guard: ignore clickStage fired right after focusNode
 
+  // ── Lifecycle ──────────────────────────────────────────────────────────────
   const destroy = useCallback(() => {
     sigmaRef.current?.kill()
     sigmaRef.current = null
@@ -60,149 +191,40 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
 
   useEffect(() => () => destroy(), [destroy])
 
-  const load = useCallback((nodes, edges, rootKey = '__root__', extraEdges = []) => {  // eslint-disable-line
-    destroy()
-
-    const graph = new Graph({ type: 'directed' })
-
-    nodes.forEach(({ key, attributes }) => {
-      graph.addNode(key, {
-        ...attributes,
-        x: 0, y: 0,
-        // Preserve caller-supplied color/size (e.g. heatmap); fall back to defaults
-        color: attributes.color ?? nodeColor(attributes),
-        size: attributes.size ?? nodeSize(attributes),
-        labelColor: '#e2e8f0',
-      })
-    })
-
-    // Only tree edges used during layout — no cycles
-    edges.forEach(({ source, target }) => {
-      if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
-        graph.addDirectedEdge(source, target, { color: '#334155', size: 1 })
-      }
-    })
-
-    radialTreeLayout(graph, rootKey)
-
-    // Snapshot for search / programmatic focus
-    graphRef.current = graph
-    nodesRef.current = []
-    graph.forEachNode((key, attrs) => {
-      nodesRef.current.push({ key, label: attrs.label, kind: attrs.kind, ext: attrs.ext })
-    })
-
-    // Add extra edges (e.g. import edges) after layout — they may form cycles
-    extraEdges.forEach(({ source, target }) => {
-      if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
-        graph.addDirectedEdge(source, target, { color: '#475569', size: 0.5 })
-      }
-    })
-
-    // Snapshot positions after layout — zoom-spread scales from these
-    const base = {}
-    graph.forEachNode((n) => {
-      base[n] = { x: graph.getNodeAttribute(n, 'x'), y: graph.getNodeAttribute(n, 'y') }
-    })
-
-    // cam.ratio is read every frame by nodeReducer — updated by camera listener
-    const cam = { ratio: 1 }
-
-    const sigma = new Sigma(graph, containerRef.current, {
-      ...SIGMA_DEFAULTS,
-      nodeReducer: (node, data) => {
-        const maxGraphSize = MAX_NODE_SCREEN_PX * cam.ratio
-        const scale = Math.pow(1 / cam.ratio, 0.4)
-        const result = { ...data, size: Math.min(data.size * scale, maxGraphSize) }
-
-        const focus = focusRef.current
-        const filter = filterRef.current
-        if (focus) {
-          if (focus.impactZone) {
-            // Impact mode: color each node by its depth in the impact zone
-            const depth = focus.impactZone.get(node)
-            if (depth === undefined) {
-              result.color = withAlpha(data.color, 0.2)
-              result.labelColor = '#1e3a5f'
-            } else {
-              const c = impactColor(depth)
-              result.color = c
-              result.labelColor = c
-            }
-          } else if (node !== focus.node && !focus.neighbors.has(node)) {
-            // Normal neighbor mode: dim unconnected nodes
-            result.color = withAlpha(data.color, 0.2)
-            result.labelColor = '#1e3a5f'
-          }
-        } else if (filter && !filter.has(node)) {
-          // Search filter mode: dim nodes that don't match the query
-          result.color = withAlpha(data.color, 0.15)
-          result.labelColor = '#1e3a5f'
-        }
-        return result
-      },
-      edgeReducer: (edge, data) => {
-        const focus = focusRef.current
-        const filter = filterRef.current
-        if (!focus && !filter) return data
-        const src = graph.source(edge)
-        const tgt = graph.target(edge)
-        if (focus) {
-          if (focus.impactZone) {
-            // Show only edges where both endpoints are in the impact zone
-            if (!focus.impactZone.has(src) || !focus.impactZone.has(tgt)) return { ...data, hidden: true }
-            return data
-          }
-          const connected = src === focus.node || tgt === focus.node
-          // WebGL edge renderer ignores hex alpha — hide inactive edges entirely
-          if (!connected) return { ...data, hidden: true }
-          return data
-        }
-        // Search filter mode: hide edges where neither endpoint matches
-        if (!filter.has(src) && !filter.has(tgt)) return { ...data, hidden: true }
-        return data
-      },
-    })
-    sigmaRef.current = sigma
-
+  // ── Event wiring ───────────────────────────────────────────────────────────
+  const attachZoomSpread = useCallback((sigma, graph, basePositions, cam) => {
     let lastRatio = sigma.getCamera().ratio
     sigma.getCamera().on('updated', () => {
       const ratio = sigma.getCamera().ratio
       cam.ratio = ratio
       if (Math.abs(ratio - lastRatio) / lastRatio < SPREAD_THRESHOLD) return
       lastRatio = ratio
-      // Spread nodes proportionally — preserves planarity (no separateNodes)
       const spread = 1 / ratio
       graph.forEachNode((n) => {
-        graph.setNodeAttribute(n, 'x', base[n].x * spread)
-        graph.setNodeAttribute(n, 'y', base[n].y * spread)
+        graph.setNodeAttribute(n, 'x', basePositions[n].x * spread)
+        graph.setNodeAttribute(n, 'y', basePositions[n].y * spread)
       })
       sigma.refresh({ skipIndexation: false })
     })
+  }, [])
 
-    // Click node → focus; click same node or background → clear focus
+  const attachInteractionHandlers = useCallback((sigma, graph) => {
     sigma.on('clickNode', ({ node }) => {
       if (focusRef.current?.node === node) {
         focusRef.current = null
         onClearFocus?.()
       } else {
-        if (getImpactZone) {
-          const impactZone = getImpactZone(node)   // Map<key, depth> returned by caller
-          focusRef.current = { node, neighbors: new Set(impactZone.keys()), impactZone }
-        } else {
-          const neighbors = new Set(graph.neighbors(node))
-          focusRef.current = { node, neighbors, impactZone: null }
-        }
+        focusRef.current = computeFocus(node, graph, getImpactZone)
       }
-      // Clear any active search filter so focus and filter don't overlap
-      filterRef.current = null
+      filterRef.current = null  // focus and filter are mutually exclusive
       onClickNode?.(node, graph.getNodeAttributes(node))
       sigma.refresh()
     })
+
     sigma.on('clickStage', () => {
-      // Ignore stage clicks that arrive right after a programmatic focusNode() call
-      // (the dropdown closes mid-click, causing mouseup/click to land on the canvas)
-      if (Date.now() - lastFocusTimeRef.current < 300) return
+      // Ignore stage clicks that arrive right after a programmatic focusNode()
+      // (e.g. closing a dropdown lets the mouseup land on the canvas)
+      if (Date.now() - lastFocusTimeRef.current < CLICK_STAGE_GUARD) return
       if (focusRef.current) {
         focusRef.current = null
         onClearFocus?.()
@@ -210,48 +232,72 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
       }
     })
 
-    sigma.on('enterNode', ({ node }) => onEnterNode?.(node, graph.getNodeAttributes(node)))
-    sigma.on('leaveNode', () => onLeaveNode?.())
-
-    // Double-click on a node — prevent sigma's default zoom and fire callback
+    sigma.on('enterNode',       ({ node })        => onEnterNode?.(node, graph.getNodeAttributes(node)))
+    sigma.on('leaveNode',       ()                => onLeaveNode?.())
     sigma.on('doubleClickNode', ({ node, event }) => {
-      event.preventSigmaDefault()
+      event.preventSigmaDefault()  // suppress sigma's built-in zoom
       onDoubleClickNode?.(node, graph.getNodeAttributes(node))
     })
+  }, [getImpactZone, onClickNode, onClearFocus, onEnterNode, onLeaveNode, onDoubleClickNode])
+
+  // ── Public: load a fresh graph ─────────────────────────────────────────────
+  const load = useCallback((nodes, edges, rootKey = '__root__', extraEdges = []) => {
+    destroy()
+
+    const graph = buildGraph(nodes, edges)
+    radialTreeLayout(graph, rootKey)
+
+    graphRef.current = graph
+    nodesRef.current = snapshotNodes(graph)
+
+    // Extra edges (cycles allowed) are added AFTER layout so they don't perturb it
+    addEdgesSafe(graph, extraEdges, EXTRA_EDGE_COLOR, 0.5)
+
+    const basePositions = snapshotPositions(graph)
+    const cam = { ratio: 1 }  // mutated by zoom listener, read by node reducer
+
+    const sigma = new Sigma(graph, containerRef.current, {
+      ...SIGMA_DEFAULTS,
+      nodeReducer: (node, data) =>
+        reduceNode(node, data, { focus: focusRef.current, filter: filterRef.current, camRatio: cam.ratio }),
+      edgeReducer: (edge, data) =>
+        reduceEdge(graph, edge, data, { focus: focusRef.current, filter: filterRef.current }),
+    })
+    sigmaRef.current = sigma
+
+    attachZoomSpread(sigma, graph, basePositions, cam)
+    attachInteractionHandlers(sigma, graph)
 
     onReady?.(graph.order)
-  }, [containerRef, destroy, onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode])
+  }, [containerRef, destroy, attachZoomSpread, attachInteractionHandlers, onReady])
 
+  // ── Public: query / mutation API ───────────────────────────────────────────
   const getNodes = useCallback(() => nodesRef.current, [])
 
   const setFilter = useCallback((keys) => {
-    const sigma = sigmaRef.current
     filterRef.current = keys  // Set<string> | null
-    sigma?.refresh()
+    sigmaRef.current?.refresh()
   }, [])
 
   const focusNode = useCallback((key) => {
     const sigma = sigmaRef.current
     const graph = graphRef.current
     if (!sigma || !graph) return
+
+    // Clear / no-op when the key is unknown
     if (!key || !graph.hasNode(key)) {
-      // Clear focus (un-mute all)
       focusRef.current = null
       sigma.refresh()
       return
     }
-    if (getImpactZone) {
-      const impactZone = getImpactZone(key)
-      focusRef.current = { node: key, neighbors: new Set(impactZone.keys()), impactZone }
+    // Toggle off when re-focusing the same node
+    if (focusRef.current?.node === key) {
+      focusRef.current = null
     } else {
-      const neighbors = new Set(graph.neighbors(key))
-      focusRef.current = { node: key, neighbors, impactZone: null }
+      focusRef.current = computeFocus(key, graph, getImpactZone)
     }
-    lastFocusTimeRef.current = Date.now()
+    lastFocusTimeRef.current = Date.now()  // suppress the next clickStage
     sigma.refresh()
-    const x = graph.getNodeAttribute(key, 'x')
-    const y = graph.getNodeAttribute(key, 'y')
-    sigma.getCamera().animate({ x, y, ratio: Math.min(sigma.getCamera().ratio, 0.8) }, { duration: 350 })
   }, [getImpactZone])
 
   const patchNodes = useCallback((updates) => {
@@ -271,11 +317,7 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
     const graph = graphRef.current
     const sigma = sigmaRef.current
     if (!graph || !sigma) return
-    edges.forEach(({ source, target }) => {
-      if (graph.hasNode(source) && graph.hasNode(target) && !graph.hasEdge(source, target)) {
-        graph.addDirectedEdge(source, target, { color: '#475569', size: 0.5 })
-      }
-    })
+    addEdgesSafe(graph, edges, EXTRA_EDGE_COLOR, 0.5)
     sigma.refresh()
   }, [])
 

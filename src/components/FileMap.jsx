@@ -111,7 +111,7 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', onViewR
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function Header({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSubmit, onReset }) {
+function Header({ status, nodeCount, inputValue, activeRoot, lang, getNodes, setFilter, searchResetRef, onInputChange, onSelect, onSubmit, onReset }) {
   const loading = status === 'loading'
   return (
     <div className="cs-header">
@@ -133,6 +133,7 @@ function Header({ status, nodeCount, inputValue, activeRoot, lang, getNodes, set
         setFilter={setFilter}
         searchResetRef={searchResetRef}
         onInputChange={onInputChange}
+        onSelect={onSelect}
         onSubmit={onSubmit}
         onReset={onReset}
       />
