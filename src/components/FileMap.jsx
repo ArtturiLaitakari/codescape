@@ -88,6 +88,7 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', onViewR
         setFilter={setFilter}
         searchResetRef={searchResetRef}
         onInputChange={(v) => setInputValue(v)}
+        onSelect={(p) => loadGraph(p)}
         onSubmit={handleSubmit}
         onReset={handleReset}
       />

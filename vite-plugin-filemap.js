@@ -539,6 +539,28 @@ export function fileMapPlugin(rootDir) {
     name: 'vite-filemap',
     configureServer(server) {
 
+      server.middlewares.use('/api/browse', (req, res) => {
+        try {
+          const url = new URL(req.url, 'http://localhost')
+          const reqPath = url.searchParams.get('path')
+          const target = reqPath ? path.resolve(reqPath) : rootDir
+          try {
+            if (!fs.statSync(target).isDirectory()) throw new Error('Not a directory')
+          } catch (e) {
+            res.statusCode = 400; res.end(JSON.stringify({ error: e.message })); return
+          }
+          const parent = path.dirname(target)
+          const entries = fs.readdirSync(target, { withFileTypes: true })
+            .filter(e => e.isDirectory() && !e.name.startsWith('.') && !IGNORE.has(e.name))
+            .map(e => ({ name: e.name, path: path.join(target, e.name) }))
+            .sort((a, b) => a.name.localeCompare(b.name))
+          res.setHeader('Content-Type', 'application/json')
+          res.end(JSON.stringify({ path: target, parent: parent !== target ? parent : null, dirs: entries }))
+        } catch (e) {
+          res.statusCode = 500; res.end(JSON.stringify({ error: e.message }))
+        }
+      })
+
       server.middlewares.use('/api/filemap', (req, res) => {
         try {
           const url = new URL(req.url, 'http://localhost')

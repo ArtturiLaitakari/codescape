@@ -209,6 +209,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
         setFilter={setFilter}
         searchResetRef={searchResetRef}
         onInputChange={(v) => setInputValue(v)}
+        onSelect={(p) => loadGraph(p)}
         onSubmit={handleSubmit}
         onReset={handleReset}
       />

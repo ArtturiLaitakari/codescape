@@ -122,6 +122,105 @@
   font-size: 14px;
 }
 
+.cs-folder-btn {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  padding: 0 2px;
+  font-size: 14px;
+  cursor: pointer;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.cs-folder-btn:hover { background: var(--cs-border); }
+
+/* ── Directory picker popup ───────────────────────────────────────────────── */
+
+.cs-dirpicker {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 100;
+  width: 340px;
+  max-height: 340px;
+  display: flex;
+  flex-direction: column;
+  background: var(--cs-tooltip-bg);
+  border: 1px solid var(--cs-border-2);
+  border-radius: 8px;
+  box-shadow: var(--cs-menu-shadow);
+  overflow: hidden;
+}
+
+.cs-dirpicker__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--cs-border);
+  flex-shrink: 0;
+}
+
+.cs-dirpicker__up {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--cs-border-2);
+  border-radius: 4px;
+  color: var(--cs-text-sec);
+  font-size: 12px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.cs-dirpicker__up:disabled { color: var(--cs-text-dim); cursor: default; }
+.cs-dirpicker__up:not(:disabled):hover { background: var(--cs-border); }
+
+.cs-dirpicker__path {
+  flex: 1;
+  min-width: 0;
+  font-family: monospace;
+  font-size: 10px;
+  color: var(--cs-text-sec);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cs-dirpicker__list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.cs-dirpicker__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--cs-text-primary);
+}
+.cs-dirpicker__row:hover { background: var(--cs-accent-dim); }
+
+.cs-dirpicker__icon { font-size: 13px; flex-shrink: 0; }
+.cs-dirpicker__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; }
+
+.cs-dirpicker__hint {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: var(--cs-text-dim);
+}
+
+.cs-dirpicker__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--cs-border);
+  flex-shrink: 0;
+}
+
 /* ── Form controls ────────────────────────────────────────────────────────── */
 
 .cs-input {

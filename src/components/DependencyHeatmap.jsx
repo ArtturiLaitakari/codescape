@@ -139,6 +139,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
         setFilter={setFilter}
         searchResetRef={searchResetRef}
         onInputChange={(v) => setInputValue(v)}
+        onSelect={(p) => loadGraph(p)}
         onSubmit={handleSubmit}
         onReset={handleReset}
       />
