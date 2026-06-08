@@ -9,7 +9,7 @@ import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import { ImpactDepthLegend } from './ImpactDepthLegend.jsx'
 import FileCodeView from './FileCodeView.jsx'
 
-export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi', onViewReady }) {
+export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi', theme, onViewReady }) {
   const containerRef = useRef(null)
   const reverseAdjRef = useRef({})
   const forwardImportRef = useRef({})
@@ -50,7 +50,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode })
+  const { load, getNodes, setFilter, refreshTheme } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
@@ -101,6 +101,8 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
     return cleanup
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // only on mount — sharedRoot is the initial value, not a live dependency
+
+  useEffect(() => { refreshTheme() }, [theme, refreshTheme])
 
   function handleSubmit(e) {
     e.preventDefault()

@@ -33,7 +33,7 @@ function filterBand(fileList, bandId) {
   return fileList.filter(f => f.tScore >= band.minT && f.tScore < (band.maxT ?? Infinity))
 }
 
-export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', onViewReady }) {
+export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', theme, onViewReady }) {
   const containerRef = useRef(null)
   const [status, setStatus]     = useState('loading')
   const [hovered, setHovered]   = useState(null)
@@ -73,7 +73,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { load, getNodes, setFilter, patchNodes, addEdges, focusNode } = useSigmaGraph(containerRef, {
+  const { load, getNodes, setFilter, patchNodes, addEdges, focusNode, refreshTheme } = useSigmaGraph(containerRef, {
     onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
   })
 
@@ -180,6 +180,8 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     return cleanup
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  useEffect(() => { refreshTheme() }, [theme, refreshTheme])
 
   function handleSubmit(e) {
     e.preventDefault()

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { VIRTUAL_API_COLOR } from '../lib/runtime-colors.js'
 import { t } from '../lib/i18n.js'
 
-const FILE_COLOR = '#e2e8f0'
+const FILE_COLOR = 'var(--cs-text-primary)'
 const LIB_COLOR  = VIRTUAL_API_COLOR
 
 // Complexity tiers
@@ -223,7 +223,7 @@ function MindMap({ data, hovered, onHover, filePath, activeRoot }) {
                 />
               )}
               <text x={lx} y={n.y - 3} textAnchor="start" fontSize={fs}
-                fill="#e2e8f0" style={{ fontFamily: 'ui-monospace, monospace' }}>
+                fill="var(--cs-text-primary)" style={{ fontFamily: 'ui-monospace, monospace' }}>
                 {trim(n.label)}
               </text>
               {!n.isRoot && (

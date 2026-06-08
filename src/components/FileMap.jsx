@@ -5,7 +5,7 @@ import { t, tf } from '../lib/i18n.js'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import FileCodeView from './FileCodeView.jsx'
 
-export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', onViewReady }) {
+export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, onViewReady }) {
   const containerRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [hovered, setHovered]   = useState(null)
@@ -36,7 +36,7 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', onViewR
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { load, getNodes, setFilter } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
+  const { load, getNodes, setFilter, refreshTheme } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
@@ -62,6 +62,8 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', onViewR
     return cleanup
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // only on mount — sharedRoot is the initial value, not a dependency
+
+  useEffect(() => { refreshTheme() }, [theme, refreshTheme])
 
   function handleSubmit(e) {
     e.preventDefault()

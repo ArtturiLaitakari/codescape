@@ -21,10 +21,21 @@ const MAX_NODE_SCREEN_PX = 40    // node pixel cap regardless of zoom
 const CLICK_STAGE_GUARD  = 300   // ms — ignore stage clicks right after programmatic focus
 const DIM_COLOR_ALPHA    = 0.2   // alpha for dimmed (non-focused / non-matched) nodes
 const FILTER_DIM_ALPHA   = 0.15  // alpha for nodes outside search filter
-const DIM_LABEL_COLOR    = '#1e3a5f'
-const DEFAULT_LABEL_COLOR = '#e2e8f0'
+const DEFAULT_LABEL_COLOR = '#e2e8f0'  // fallback; overridden at load time by getThemeLabelColor()
 const TREE_EDGE_COLOR    = '#334155'
 const EXTRA_EDGE_COLOR   = '#475569'
+
+/** Read --cs-text-primary from the document root (theme-aware). Falls back to dark-theme value. */
+function getThemeLabelColor() {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--cs-text-primary').trim()
+  return v || '#e2e8f0'  // dark theme fallback
+}
+
+/** Color that makes a label invisible — matches the graph canvas background. */
+function getThemeDimLabelColor() {
+  const v = getComputedStyle(document.documentElement).getPropertyValue('--cs-graph-bg').trim()
+  return v || '#0f172a'  // dark theme fallback
+}
 
 // Impact zone depth → color: selected=gold, direct=orange, 2nd=amber, 3+=pale
 const IMPACT_COLORS = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
@@ -40,7 +51,7 @@ function withAlpha(hex, alpha) {
 }
 
 /** Build a directed graphology graph from node + tree-edge specs. */
-function buildGraph(nodes, edges) {
+function buildGraph(nodes, edges, labelColor = DEFAULT_LABEL_COLOR) {
   const graph = new Graph({ type: 'directed' })
   nodes.forEach(({ key, attributes }) => {
     graph.addNode(key, {
@@ -48,7 +59,7 @@ function buildGraph(nodes, edges) {
       x: 0, y: 0,
       color: attributes.color ?? nodeColor(attributes),
       size: attributes.size ?? nodeSize(attributes),
-      labelColor: DEFAULT_LABEL_COLOR,
+      labelColor,
     })
   })
   addEdgesSafe(graph, edges, TREE_EDGE_COLOR, 1)
@@ -85,7 +96,7 @@ function computeFocus(node, graph, getImpactZone) {
 // ── Reducers (decide per-frame how each node/edge looks) ─────────────────────
 
 /** Apply focus/filter dimming + zoom-aware sizing to a single node. */
-function reduceNode(node, data, { focus, filter, camRatio }) {
+function reduceNode(node, data, { focus, filter, camRatio, dimLabelColor }) {
   const maxGraphSize = MAX_NODE_SCREEN_PX * camRatio
   const scale = Math.pow(1 / camRatio, 0.4)
   const result = { ...data, size: Math.min(data.size * scale, maxGraphSize) }
@@ -94,7 +105,7 @@ function reduceNode(node, data, { focus, filter, camRatio }) {
     const depth = focus.impactZone.get(node)
     if (depth === undefined) {
       result.color = withAlpha(data.color, DIM_COLOR_ALPHA)
-      result.labelColor = DIM_LABEL_COLOR
+      result.labelColor = dimLabelColor
     } else {
       const c = impactColor(depth)
       result.color = c
@@ -105,13 +116,13 @@ function reduceNode(node, data, { focus, filter, camRatio }) {
 
   if (focus && node !== focus.node && !focus.neighbors.has(node)) {
     result.color = withAlpha(data.color, DIM_COLOR_ALPHA)
-    result.labelColor = DIM_LABEL_COLOR
+    result.labelColor = dimLabelColor
     return result
   }
 
   if (!focus && filter && !filter.has(node)) {
     result.color = withAlpha(data.color, FILTER_DIM_ALPHA)
-    result.labelColor = DIM_LABEL_COLOR
+    result.labelColor = dimLabelColor
   }
   return result
 }
@@ -169,6 +180,7 @@ export function useSigmaGraph(containerRef, {
   const focusRef        = useRef(null)  // null | { node, neighbors: Set<string>, impactZone: Map|null }
   const filterRef       = useRef(null)  // null | Set<string>
   const lastFocusTimeRef = useRef(0)    // guard: ignore clickStage fired right after focusNode
+  const camRef          = useRef(null)  // ref to current cam object so refreshTheme can update dimLabelColor
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
   const destroy = useCallback(() => {
@@ -238,7 +250,9 @@ export function useSigmaGraph(containerRef, {
   const load = useCallback((nodes, edges, rootKey = '__root__', extraEdges = []) => {
     destroy()
 
-    const graph = buildGraph(nodes, edges)
+    const labelColor = getThemeLabelColor()
+    const dimLabelColor = getThemeDimLabelColor()
+    const graph = buildGraph(nodes, edges, labelColor)
     const layoutLUTs = radialTreeLayout(graph, rootKey)
 
     graphRef.current = graph
@@ -247,12 +261,13 @@ export function useSigmaGraph(containerRef, {
     // Extra edges (cycles allowed) are added AFTER layout so they don't perturb it
     addEdgesSafe(graph, extraEdges, EXTRA_EDGE_COLOR, 0.5)
 
-    const cam = { ratio: 1 }  // mutated by zoom listener, read by node reducer
+    const cam = { ratio: 1, dimLabelColor }  // mutated by zoom listener, read by node reducer
+    camRef.current = cam
 
     const sigma = new Sigma(graph, containerRef.current, {
       ...SIGMA_DEFAULTS,
       nodeReducer: (node, data) =>
-        reduceNode(node, data, { focus: focusRef.current, filter: filterRef.current, camRatio: cam.ratio }),
+        reduceNode(node, data, { focus: focusRef.current, filter: filterRef.current, camRatio: cam.ratio, dimLabelColor: camRef.current?.dimLabelColor ?? cam.dimLabelColor }),
       edgeReducer: (edge, data) =>
         reduceEdge(graph, edge, data, { focus: focusRef.current, filter: filterRef.current }),
     })
@@ -314,5 +329,19 @@ export function useSigmaGraph(containerRef, {
     sigma.refresh()
   }, [])
 
-  return { load, focusNode, getNodes, setFilter, patchNodes, addEdges }
+  /** Re-read theme colors from CSS and patch every node's labelColor in place. */
+  const refreshTheme = useCallback(() => {
+    const graph = graphRef.current
+    const sigma = sigmaRef.current
+    if (!graph || !sigma) return
+    const labelColor = getThemeLabelColor()
+    const dimLabelColor = getThemeDimLabelColor()
+    // Update cam so next nodeReducer call uses the new dimLabelColor
+    // cam is closed over inside load; store on sigma for access here
+    if (camRef.current) camRef.current.dimLabelColor = dimLabelColor
+    graph.forEachNode((n) => graph.setNodeAttribute(n, 'labelColor', labelColor))
+    sigma.refresh()
+  }, [])
+
+  return { load, focusNode, getNodes, setFilter, patchNodes, addEdges, refreshTheme }
 }
