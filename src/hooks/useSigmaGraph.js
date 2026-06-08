@@ -233,7 +233,13 @@ export function useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady,
   const focusNode = useCallback((key) => {
     const sigma = sigmaRef.current
     const graph = graphRef.current
-    if (!sigma || !graph || !graph.hasNode(key)) return
+    if (!sigma || !graph) return
+    if (!key || !graph.hasNode(key)) {
+      // Clear focus (un-mute all)
+      focusRef.current = null
+      sigma.refresh()
+      return
+    }
     if (getImpactZone) {
       const impactZone = getImpactZone(key)
       focusRef.current = { node: key, neighbors: new Set(impactZone.keys()), impactZone }

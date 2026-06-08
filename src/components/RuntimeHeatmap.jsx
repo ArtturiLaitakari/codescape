@@ -73,7 +73,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { load, getNodes, setFilter, patchNodes, addEdges } = useSigmaGraph(containerRef, {
+  const { load, getNodes, setFilter, patchNodes, addEdges, focusNode } = useSigmaGraph(containerRef, {
     onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
   })
 
@@ -231,7 +231,10 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
           onClose={() => setSelectedBand(null)}
           onSelectFile={(key, f) => {
             searchResetRef.current?.()
-            setPinned(prev => prev?.key === key ? null : { key, ...f })
+            const isAlreadyPinned = pinned?.key === key
+            setPinned(isAlreadyPinned ? null : { key, ...f })
+            if (!isAlreadyPinned) focusNode(key)
+            else focusNode(null)
           }}
           pinned={pinned}
           lang={lang}
