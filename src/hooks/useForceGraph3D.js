@@ -92,6 +92,12 @@ function colorForLink(link, focus, filter) {
   return edgeVisibility(src, tgt, focus, filter) === 'visible' ? visible : HIDDEN_LINK
 }
 
+// Reference camera distance at which textHeight=3 looks "normal".
+// Below this → text shrinks (you're close); above → text grows sub-linearly.
+const LABEL_REF_DIST = 200
+// Exponent < 1 → sub-linear growth. 0.35: at 4× dist text is ~1.6× bigger, not 4×.
+const LABEL_DIST_EXP = 0.8
+
 /** Build a node sprite (label) for a graph node. Caller assigns initial color. */
 function createNodeSprite(node, color) {
   const sprite = new SpriteText(node.label ?? node.id)
@@ -103,6 +109,19 @@ function createNodeSprite(node, color) {
   // Sphere radius = cbrt(_size) * nodeRelSize(=4)
   const sphereR = Math.cbrt(node._size ?? 4) * 4
   sprite.position.set(sphereR + LABEL_OFFSET, 0, 0)
+
+  // SpriteText sets scale lazily on first render — capture it then, not now.
+  // onBeforeRender: scales the quad without touching the texture — free operation.
+  let bx = 0, by = 0
+  sprite.onBeforeRender = (_renderer, _scene, camera) => {
+    // First frame: record the natural scale SpriteText just computed.
+    if (bx === 0) { bx = sprite.scale.x; by = sprite.scale.y }
+    const dist = Math.max(camera.position.length(), 40)
+    const f = Math.pow(dist / LABEL_REF_DIST, LABEL_DIST_EXP)
+    console.log('dist', dist, 'scale', f)
+    sprite.scale.set(bx * f, by * f, 1)
+  }
+
   return sprite
 }
 
