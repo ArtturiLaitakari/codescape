@@ -3,7 +3,6 @@ import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useForceGraph3D.js'
 import { useRuntimeStream } from '../hooks/useRuntimeStream.js'
 import {
-  runtimeColor,
   RUNTIME_LEGEND_STOPS,
   VIRTUAL_DB_COLOR, VIRTUAL_API_COLOR,
 } from '../lib/runtime-colors.js'

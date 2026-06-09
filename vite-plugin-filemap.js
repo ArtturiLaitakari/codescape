@@ -116,11 +116,35 @@ async function loadProjectChunked(project, files) {
   }
 }
 
+const FUNCTION_KINDS = new Set([
+  'FunctionDeclaration', 'FunctionExpression', 'ArrowFunction',
+])
+
+/**
+ * Cyclomatic complexity of `node` counting only branches that belong directly
+ * to this function — branches inside nested functions are excluded, so parent
+ * functions don't absorb their children's complexity.
+ */
 function cyclomaticOf(node) {
   let c = 1
   const descendants = tryOr(() => node.getDescendants(), [])
-  for (const kindName of BRANCH_KINDS) {
-    c += descendants.filter(n => n.getKindName() === kindName).length
+  for (const d of descendants) {
+    // Skip anything inside a nested function scope
+    const kind = d.getKindName()
+    if (FUNCTION_KINDS.has(kind)) continue   // don't count nested fn roots
+    // Skip branch nodes whose nearest function ancestor is not `node` itself
+    if (!BRANCH_KINDS.includes(kind)) continue
+    // Walk up to find the enclosing function; skip if it's not `node`
+    let ancestor = d.getParent?.()
+    let insideNested = false
+    while (ancestor && ancestor !== node) {
+      if (FUNCTION_KINDS.has(tryOr(() => ancestor.getKindName(), ''))) {
+        insideNested = true
+        break
+      }
+      ancestor = ancestor.getParent?.()
+    }
+    if (!insideNested) c++
   }
   return c
 }
@@ -158,37 +182,57 @@ function collectExportedNames(sf) {
 }
 
 /** Walk the source file and collect every function-like declaration. */
-function collectFunctions(sf, exportedNames) {
-  const functions = []
+/**
+ * Resolve the actual function node from a variable initializer.
+ *   const f = () => {}                → ArrowFunction
+ *   const f = function() {}           → FunctionExpression
+ *   const f = useCallback(() => {}, []) → first arg (ArrowFunction / FunctionExpression)
+ */
+function resolveInitFnNode(init) {
+  if (!init) return null
+  const kind = tryOr(() => init.getKindName(), null)
+  if (kind === 'ArrowFunction' || kind === 'FunctionExpression') return init
+  if (kind === 'CallExpression') {
+    const firstArg = tryOr(() => init.getArguments?.()[0], null)
+    const argKind  = firstArg ? tryOr(() => firstArg.getKindName(), null) : null
+    if (argKind === 'ArrowFunction' || argKind === 'FunctionExpression') return firstArg
+  }
+  return null
+}
 
+/** Collect FunctionDeclarations and const/arrow variables at any depth. */
+function collectTopLevelFunctions(sf, exportedNames) {
+  const results = []
   for (const node of sf.getDescendants()) {
     const kind = tryOr(() => node.getKindName(), null)
-
     if (kind === 'FunctionDeclaration') {
       const name = tryOr(() => node.getName?.(), '')
-      if (!name) continue
-      functions.push(buildFunctionEntry(name, 'function', node, node, exportedNames))
+      if (name) results.push(buildFunctionEntry(name, 'function', node, node, exportedNames))
     } else if (kind === 'VariableDeclaration') {
-      const init = tryOr(() => node.getInitializer?.(), null)
-      const initKind = init ? tryOr(() => init.getKindName(), null) : null
-      if (initKind !== 'ArrowFunction' && initKind !== 'FunctionExpression') continue
-      const name = tryOr(() => node.getName?.(), null)
-      if (!name) continue
-      functions.push(buildFunctionEntry(name, 'arrow', node, init, exportedNames))
+      const fnNode = resolveInitFnNode(tryOr(() => node.getInitializer?.(), null))
+      const name   = fnNode && tryOr(() => node.getName?.(), null)
+      if (name) results.push(buildFunctionEntry(name, 'arrow', node, fnNode, exportedNames))
     }
   }
+  return results
+}
 
-  // Class methods (covers all depths in one call)
+/** Collect all class method entries across every class declaration in the file. */
+function collectClassMethods(sf) {
+  const results = []
   for (const cls of sf.getClasses()) {
+    const clsName = cls.getName() ?? 'Class'
     for (const method of cls.getMethods()) {
       tryOr(() => {
-        const name = `${cls.getName() ?? 'Class'}.${method.getName()}`
-        functions.push(buildFunctionEntry(name, 'method', method, method, new Set()))
+        results.push(buildFunctionEntry(`${clsName}.${method.getName()}`, 'method', method, method, new Set()))
       })
     }
   }
+  return results
+}
 
-  return functions
+function collectFunctions(sf, exportedNames) {
+  return [...collectTopLevelFunctions(sf, exportedNames), ...collectClassMethods(sf)]
 }
 
 /** Standard shape of a single function record. */
@@ -225,16 +269,11 @@ function buildFunctionTree(flat) {
 
 /** Aggregate file-level complexity metrics from per-function CC. */
 function computeFileComplexity(functions, text, loc) {
-  // cyclomaticOf walks descendants, so an outer function's CC includes nested
-  // functions' branches. For maxCyclomatic, only consider leaf functions.
-  const isLeaf = (f) =>
-    !functions.some(g => g !== f && g.startLine >= f.startLine && g.endLine <= f.endLine)
-  const leafFunctions = functions.filter(isLeaf)
-
+  // cyclomaticOf already excludes nested functions' branches, so every function's
+  // CC is self-contained. maxCyclomatic can safely use all functions.
   const totalCyclomatic = functions.reduce((s, f) => s + f.cyclomatic, 0)
   const avgCyclomatic   = functions.length ? +(totalCyclomatic / functions.length).toFixed(1) : 1
-  const maxCyclomatic   = (leafFunctions.length ? leafFunctions : functions)
-    .reduce((m, f) => Math.max(m, f.cyclomatic), 1)
+  const maxCyclomatic   = functions.reduce((m, f) => Math.max(m, f.cyclomatic), 1)
   const totalLines = functions.reduce((s, f) => s + f.lines, 0)
 
   // Halstead-lite vocabulary proxy

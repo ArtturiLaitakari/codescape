@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import Graph from 'graphology'
 import Sigma from 'sigma'
 import { radialTreeLayout } from '../lib/graph-layout.js'
-import { nodeColor, nodeSize } from '../lib/graph-colors.js'
+import { nodeColor, nodeSize, impactColor, nodeDimState, edgeVisibility } from '../lib/graph-colors.js'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 const SIGMA_DEFAULTS = {
@@ -36,10 +36,6 @@ function getThemeDimLabelColor() {
   const v = getComputedStyle(document.documentElement).getPropertyValue('--cs-graph-bg').trim()
   return v || '#0f172a'  // dark theme fallback
 }
-
-// Impact zone depth → color: selected=gold, direct=orange, 2nd=amber, 3+=pale
-const IMPACT_COLORS = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
-const impactColor = (depth) => IMPACT_COLORS[Math.min(depth, IMPACT_COLORS.length - 1)]
 
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
@@ -93,6 +89,21 @@ function computeFocus(node, graph, getImpactZone) {
   return { node, neighbors: new Set(graph.neighbors(node)), impactZone: null }
 }
 
+// ── Reducer helpers ──────────────────────────────────────────────────────────
+
+/** Apply impact-zone colour to `result` in place and return it. */
+function applyImpactZone(node, result, impactZone, dimLabelColor) {
+  const depth = impactZone.get(node)
+  if (depth === undefined) {
+    result.color = withAlpha(result.color, DIM_COLOR_ALPHA)
+    result.labelColor = dimLabelColor
+  } else {
+    result.color = impactColor(depth)
+    result.labelColor = result.color
+  }
+  return result
+}
+
 // ── Reducers (decide per-frame how each node/edge looks) ─────────────────────
 
 /** Apply focus/filter dimming + zoom-aware sizing to a single node. */
@@ -101,27 +112,11 @@ function reduceNode(node, data, { focus, filter, camRatio, dimLabelColor }) {
   const scale = Math.pow(1 / camRatio, 0.4)
   const result = { ...data, size: Math.min(data.size * scale, maxGraphSize) }
 
-  if (focus?.impactZone) {
-    const depth = focus.impactZone.get(node)
-    if (depth === undefined) {
-      result.color = withAlpha(data.color, DIM_COLOR_ALPHA)
-      result.labelColor = dimLabelColor
-    } else {
-      const c = impactColor(depth)
-      result.color = c
-      result.labelColor = c
-    }
-    return result
-  }
-
-  if (focus && node !== focus.node && !focus.neighbors.has(node)) {
-    result.color = withAlpha(data.color, DIM_COLOR_ALPHA)
-    result.labelColor = dimLabelColor
-    return result
-  }
-
-  if (!focus && filter && !filter.has(node)) {
-    result.color = withAlpha(data.color, FILTER_DIM_ALPHA)
+  const state = nodeDimState(node, focus, filter)
+  if (state === 'impact') return applyImpactZone(node, result, focus.impactZone, dimLabelColor)
+  if (state === 'dim') {
+    const alpha = focus ? DIM_COLOR_ALPHA : FILTER_DIM_ALPHA
+    result.color = withAlpha(data.color, alpha)
     result.labelColor = dimLabelColor
   }
   return result
@@ -132,18 +127,7 @@ function reduceEdge(graph, edge, data, { focus, filter }) {
   if (!focus && !filter) return data
   const src = graph.source(edge)
   const tgt = graph.target(edge)
-
-  if (focus?.impactZone) {
-    if (!focus.impactZone.has(src) || !focus.impactZone.has(tgt)) return { ...data, hidden: true }
-    return data
-  }
-  if (focus) {
-    if (src !== focus.node && tgt !== focus.node) return { ...data, hidden: true }
-    return data
-  }
-  // filter-only mode
-  if (!filter.has(src) && !filter.has(tgt)) return { ...data, hidden: true }
-  return data
+  return edgeVisibility(src, tgt, focus, filter) === 'hidden' ? { ...data, hidden: true } : data
 }
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
@@ -176,11 +160,15 @@ export function useSigmaGraph(containerRef, {
   const sigmaRef = useRef(null)
   const graphRef = useRef(null)
   const nodesRef = useRef([])
-  // Mutable refs so reducers always see the current value without recreating Sigma
-  const focusRef        = useRef(null)  // null | { node, neighbors: Set<string>, impactZone: Map|null }
-  const filterRef       = useRef(null)  // null | Set<string>
-  const lastFocusTimeRef = useRef(0)    // guard: ignore clickStage fired right after focusNode
-  const camRef          = useRef(null)  // ref to current cam object so refreshTheme can update dimLabelColor
+  const focusRef         = useRef(null)  // null | { node, neighbors: Set<string>, impactZone: Map|null }
+  const filterRef        = useRef(null)  // null | Set<string>
+  const lastFocusTimeRef = useRef(0)
+  const camRef           = useRef(null)
+
+  // Single ref for all callbacks — avoids stale closures and prevents
+  // attachInteractionHandlers / load from getting new identities on each render
+  const cbRef = useRef({})
+  cbRef.current = { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode }
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
   const destroy = useCallback(() => {
@@ -216,35 +204,34 @@ export function useSigmaGraph(containerRef, {
 
   const attachInteractionHandlers = useCallback((sigma, graph) => {
     sigma.on('clickNode', ({ node }) => {
+      const cb = cbRef.current
       if (focusRef.current?.node === node) {
         focusRef.current = null
-        onClearFocus?.()
+        cb.onClearFocus?.()
       } else {
-        focusRef.current = computeFocus(node, graph, getImpactZone)
+        focusRef.current = computeFocus(node, graph, cb.getImpactZone)
       }
-      filterRef.current = null  // focus and filter are mutually exclusive
-      onClickNode?.(node, graph.getNodeAttributes(node))
+      filterRef.current = null
+      cb.onClickNode?.(node, graph.getNodeAttributes(node))
       sigma.refresh()
     })
 
     sigma.on('clickStage', () => {
-      // Ignore stage clicks that arrive right after a programmatic focusNode()
-      // (e.g. closing a dropdown lets the mouseup land on the canvas)
       if (Date.now() - lastFocusTimeRef.current < CLICK_STAGE_GUARD) return
       if (focusRef.current) {
         focusRef.current = null
-        onClearFocus?.()
+        cbRef.current.onClearFocus?.()
         sigma.refresh()
       }
     })
 
-    sigma.on('enterNode',       ({ node })        => onEnterNode?.(node, graph.getNodeAttributes(node)))
-    sigma.on('leaveNode',       ()                => onLeaveNode?.())
+    sigma.on('enterNode',       ({ node })        => cbRef.current.onEnterNode?.(node, graph.getNodeAttributes(node)))
+    sigma.on('leaveNode',       ()                => cbRef.current.onLeaveNode?.())
     sigma.on('doubleClickNode', ({ node, event }) => {
-      event.preventSigmaDefault()  // suppress sigma's built-in zoom
-      onDoubleClickNode?.(node, graph.getNodeAttributes(node))
+      event.preventSigmaDefault()
+      cbRef.current.onDoubleClickNode?.(node, graph.getNodeAttributes(node))
     })
-  }, [getImpactZone, onClickNode, onClearFocus, onEnterNode, onLeaveNode, onDoubleClickNode])
+  }, []) // stable — reads latest callbacks via cbRef.current at call time
 
   // ── Public: load a fresh graph ─────────────────────────────────────────────
   const load = useCallback((nodes, edges, rootKey = '__root__', extraEdges = []) => {
@@ -276,8 +263,8 @@ export function useSigmaGraph(containerRef, {
     attachZoomSpread(sigma, graph, layoutLUTs, cam)
     attachInteractionHandlers(sigma, graph)
 
-    onReady?.(graph.order)
-  }, [containerRef, destroy, attachZoomSpread, attachInteractionHandlers, onReady])
+    cbRef.current.onReady?.(graph.order)
+  }, [containerRef, destroy, attachZoomSpread, attachInteractionHandlers]) // onReady via cbRef
 
   // ── Public: query / mutation API ───────────────────────────────────────────
   const getNodes = useCallback(() => nodesRef.current, [])

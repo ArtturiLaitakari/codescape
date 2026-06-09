@@ -26,6 +26,41 @@ export function nodeSize(attrs) {
   return 6
 }
 
+// Impact-zone depth → highlight colour (shared by 2D and 3D renderers)
+export const IMPACT_COLORS = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
+export const impactColor = (depth) => IMPACT_COLORS[Math.min(depth, IMPACT_COLORS.length - 1)]
+
+/**
+ * Classify the visual state of a node given the current focus/filter.
+ * Returns one of:
+ *   'impact'   — impactZone active and node IS in the zone  (color = impactColor(depth))
+ *   'dim'      — should be dimmed (focus or filter hides it)
+ *   'normal'   — fully visible
+ *
+ * Callers apply their own alpha/format on top of this result so 2D and 3D
+ * renderers stay independent while sharing the same decision logic.
+ */
+export function nodeDimState(nodeId, focus, filter) {
+  if (focus?.impactZone) {
+    const depth = focus.impactZone.get(nodeId)
+    return depth === undefined ? 'dim' : 'impact'
+  }
+  if (focus) return (nodeId === focus.node || focus.neighbors.has(nodeId)) ? 'normal' : 'dim'
+  if (filter && !filter.has(nodeId)) return 'dim'
+  return 'normal'
+}
+
+/**
+ * Classify the visual state of an edge given the current focus/filter.
+ * Returns 'visible' or 'hidden'.
+ */
+export function edgeVisibility(src, tgt, focus, filter) {
+  if (focus?.impactZone) return focus.impactZone.has(src) && focus.impactZone.has(tgt) ? 'visible' : 'hidden'
+  if (focus) return src === focus.node || tgt === focus.node ? 'visible' : 'hidden'
+  if (filter && !filter.has(src) && !filter.has(tgt)) return 'hidden'
+  return 'visible'
+}
+
 export const LEGEND = [
   { label: 'root',       color: '#8b5cf6' },
   { label: 'dir',        color: '#3b82f6' },

@@ -7,6 +7,14 @@
 export const SCORE_WEIGHTS = { db: 3, api: 2, cyclomatic: 0.5 }
 
 /**
+ * Fixed ceiling used to normalise scores to 0–1.
+ * A score at or above this value maps to full red.
+ * Examples at ceiling:
+ *   5 DB imports (15) | 3 DB + 1 API + CC 8 (9+2+4 = 15)
+ */
+export const SCORE_CEILING = 15
+
+/**
  * Compute the runtime score for a single file's metrics.
  * @param {{ dbCallCount: number, apiCallCount: number, cyclomatic: number }} d
  */
@@ -27,22 +35,27 @@ function lerpColor(a, b, t) {
   return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, '0')}`
 }
 
+// Absolute score breakpoints — independent of what's in the project.
+// score 0  → green (cyclomatic noise only)
+// score 3  → lime  (1 DB import)
+// score 6  → yellow (2 DB, or 1 DB + heavy CC)
+// score 9  → orange (3 DB, needs attention)
+// score 15 → red   (ceiling, must fix)
 const STOPS = [
-  { t: 0.00, color: '#22c55e' },  // green   — no cost
-  { t: 0.30, color: '#a3e635' },  // lime
-  { t: 0.60, color: '#eab308' },  // yellow
-  { t: 0.85, color: '#f97316' },  // orange
-  { t: 1.00, color: '#ef4444' },  // red     — high cost
+  { score: 0,  color: '#22c55e' },
+  { score: 3,  color: '#a3e635' },
+  { score: 6,  color: '#eab308' },
+  { score: 9,  color: '#f97316' },
+  { score: 15, color: '#ef4444' },
 ]
 
-export function runtimeColor(score, maxScore) {
-  if (maxScore === 0) return STOPS[0].color
-  const t = Math.min(score / maxScore, 1)
+export function runtimeColor(score) {
+  const clamped = Math.min(score, STOPS[STOPS.length - 1].score)
   for (let i = 1; i < STOPS.length; i++) {
-    if (t <= STOPS[i].t) {
-      const prev = STOPS[i - 1]
-      const curr = STOPS[i]
-      const local = (t - prev.t) / (curr.t - prev.t)
+    if (clamped <= STOPS[i].score) {
+      const prev  = STOPS[i - 1]
+      const curr  = STOPS[i]
+      const local = (clamped - prev.score) / (curr.score - prev.score)
       return lerpColor(prev.color, curr.color, local)
     }
   }

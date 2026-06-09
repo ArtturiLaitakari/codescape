@@ -1,7 +1,7 @@
 import { useCallback } from 'react'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import {
-  calcRuntimeScore, runtimeColor, runtimeSize,
+  calcRuntimeScore, runtimeColor, runtimeSize, SCORE_CEILING,
   VIRTUAL_DB_COLOR, VIRTUAL_API_COLOR, VIRTUAL_NODE_SIZE,
 } from '../lib/runtime-colors.js'
 
@@ -59,7 +59,6 @@ export function useRuntimeStream({
 
     // Mutable accumulator — lives for the lifetime of this SSE connection
     const accData = {}   // key → { ...metrics, runtimeScore }
-    let maxScore = 0
 
     function buildNodeAttrs(key, metrics) {
       const rs = calcRuntimeScore(metrics)
@@ -67,7 +66,7 @@ export function useRuntimeStream({
       return {
         ...metrics,
         runtimeScore: rs,
-        color: runtimeColor(rs, maxScore),
+        color: runtimeColor(rs),
         size:  runtimeSize(rs, nodeSize(base)),
       }
     }
@@ -93,11 +92,9 @@ export function useRuntimeStream({
       },
 
       batch(msg) {
-        // Accumulate metrics; update maxScore first, then recolour all seen nodes
         for (const [key, metrics] of Object.entries(msg.runtimeData)) {
           const rs = calcRuntimeScore(metrics)
           accData[key] = { ...metrics, runtimeScore: rs }
-          if (rs > maxScore) maxScore = rs
         }
         patchNodes(
           Object.entries(accData).map(([key, d]) => ({
@@ -123,9 +120,9 @@ export function useRuntimeStream({
             return {
               key,
               label:        na.label ?? key.split('/').pop(),
-              color:        runtimeColor(d.runtimeScore, maxScore),
+              color:        runtimeColor(d.runtimeScore),
               runtimeScore: d.runtimeScore,
-              tScore:       maxScore > 0 ? d.runtimeScore / maxScore : 0,
+              tScore:       Math.min(d.runtimeScore / SCORE_CEILING, 1),
               kind:         'file',
               ext:          na.ext,
               dbCallCount:  d.dbCallCount,

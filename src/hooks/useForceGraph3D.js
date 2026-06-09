@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react'
 import ForceGraph3D from '3d-force-graph'
 import { forceZ, forceRadial } from 'd3-force-3d'
-import { nodeColor, nodeSize } from '../lib/graph-colors.js'
+import { nodeColor, nodeSize, impactColor, nodeDimState, edgeVisibility } from '../lib/graph-colors.js'
 import SpriteText from 'three-spritetext'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -14,7 +14,6 @@ const HIDDEN_LINK     = 'rgba(51,65,85,0)'
 const TREE_LINK_COLOR = `rgba(51,65,85,${EDGE_OPACITY})`
 const EXTRA_LINK_COLOR = `rgba(71,85,105,${EDGE_OPACITY})`
 const DEFAULT_BG      = '#0f172a'
-const IMPACT_COLORS   = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
 const DBL_CLICK_MS    = 300
 const READY_FALLBACK_MS = 2000
 const CAMERA_DIST_CLICK = 120
@@ -79,20 +78,9 @@ function panCameraTo(g, node, dist, duration) {
 
 /** Compute appearance color for one node given the current focus/filter state. */
 function colorForNode(node, focus, filter) {
-  if (focus?.impactZone) {
-    const depth = focus.impactZone.get(node.id)
-    return depth === undefined
-      ? withAlpha(baseColor(node), DIM_OPACITY)
-      : IMPACT_COLORS[Math.min(depth, IMPACT_COLORS.length - 1)]
-  }
-  if (focus) {
-    return node.id === focus.node || focus.neighbors.has(node.id)
-      ? baseColor(node)
-      : withAlpha(baseColor(node), DIM_OPACITY)
-  }
-  if (filter && !filter.has(node.id)) {
-    return withAlpha(baseColor(node), FILTER_OPACITY)
-  }
+  const state = nodeDimState(node.id, focus, filter)
+  if (state === 'dim') return withAlpha(baseColor(node), focus ? DIM_OPACITY : FILTER_OPACITY)
+  if (state === 'impact') return impactColor(focus.impactZone.get(node.id))
   return baseColor(node)
 }
 
@@ -101,15 +89,7 @@ function colorForLink(link, focus, filter) {
   const src = linkEnd(link.source)
   const tgt = linkEnd(link.target)
   const visible = link._baseColor ?? TREE_LINK_COLOR
-
-  if (focus?.impactZone) {
-    return focus.impactZone.has(src) && focus.impactZone.has(tgt) ? visible : HIDDEN_LINK
-  }
-  if (focus) {
-    return src === focus.node || tgt === focus.node ? visible : HIDDEN_LINK
-  }
-  if (filter && !filter.has(src) && !filter.has(tgt)) return HIDDEN_LINK
-  return visible
+  return edgeVisibility(src, tgt, focus, filter) === 'visible' ? visible : HIDDEN_LINK
 }
 
 /** Build a node sprite (label) for a graph node. Caller assigns initial color. */
