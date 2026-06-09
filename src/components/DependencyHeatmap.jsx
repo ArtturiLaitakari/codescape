@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { API_BASE } from '../lib/api-base.js'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useForceGraph3D.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
@@ -72,7 +73,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
     setHovered(null)
     onClearFocus()
     let cancelled = false
-    const url = targetPath ? `/api/depgraph?path=${encodeURIComponent(targetPath)}` : '/api/depgraph'
+    const url = targetPath ? `${API_BASE}/api/depgraph?path=${encodeURIComponent(targetPath)}` : `${API_BASE}/api/depgraph`
     fetch(url)
       .then((r) => r.json())
       .then((body) => {

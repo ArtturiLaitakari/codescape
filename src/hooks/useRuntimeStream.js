@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { API_BASE } from '../lib/api-base.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import {
   calcRuntimeScore, runtimeColor, runtimeSize, SCORE_CEILING,
@@ -52,8 +53,8 @@ export function useRuntimeStream({
     setScanProgress(null)
 
     const url = targetPath
-      ? `/api/runtimegraph/stream?path=${encodeURIComponent(targetPath)}`
-      : '/api/runtimegraph/stream'
+      ? `${API_BASE}/api/runtimegraph/stream?path=${encodeURIComponent(targetPath)}`
+      : `${API_BASE}/api/runtimegraph/stream`
 
     const es = new EventSource(url)
 

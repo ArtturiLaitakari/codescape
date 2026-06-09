@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { API_BASE } from '../lib/api-base.js'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { t, tf, impactStatusMsg } from '../lib/i18n.js'
@@ -57,7 +58,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
     setHovered(null)
     onClearFocus()
     let cancelled = false
-    const url = targetPath ? `/api/depgraph?path=${encodeURIComponent(targetPath)}` : '/api/depgraph'
+    const url = targetPath ? `${API_BASE}/api/depgraph?path=${encodeURIComponent(targetPath)}` : `${API_BASE}/api/depgraph`
     fetch(url)
       .then((r) => r.json())
       .then((body) => {

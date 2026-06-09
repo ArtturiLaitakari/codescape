@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { API_BASE } from '../lib/api-base.js'
 
 /**
  * Directory picker popup.
@@ -12,7 +13,7 @@ export function DirPickerPopup({ startPath, onSelect, onClose }) {
 
   function browse(p) {
     setLoading(true)
-    const url = p ? `/api/browse?path=${encodeURIComponent(p)}` : '/api/browse'
+    const url = p ? `${API_BASE}/api/browse?path=${encodeURIComponent(p)}` : `${API_BASE}/api/browse`
     fetch(url)
       .then(r => r.json())
       .then(data => { setLoading(false); if (!data.error) setCurrent(data) })

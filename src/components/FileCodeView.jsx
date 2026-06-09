@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { API_BASE } from '../lib/api-base.js'
 import { VIRTUAL_API_COLOR } from '../lib/runtime-colors.js'
 import { t } from '../lib/i18n.js'
 
@@ -275,7 +276,7 @@ export default function FileCodeView({ filePath, activeRoot, onClose, lang = 'en
     let cancelled = false
     setStatus('loading')
     setData(null)
-    fetch(`/api/filecode?path=${encodeURIComponent(filePath)}`)
+    fetch(`${API_BASE}/api/filecode?path=${encodeURIComponent(filePath)}`)
       .then(r => r.json())
       .then(body => {
         if (cancelled) return

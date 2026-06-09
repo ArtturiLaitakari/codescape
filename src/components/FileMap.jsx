@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { API_BASE } from '../lib/api-base.js'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
 import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useForceGraph3D.js'
 import { nodeColor, LEGEND } from '../lib/graph-colors.js'
@@ -56,7 +57,7 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, 
     setStatus('loading')
     setHovered(null)
     let cancelled = false
-    const url = targetPath ? `/api/filemap?path=${encodeURIComponent(targetPath)}` : '/api/filemap'
+    const url = targetPath ? `${API_BASE}/api/filemap?path=${encodeURIComponent(targetPath)}` : `${API_BASE}/api/filemap`
     fetch(url)
       .then((r) => r.json())
       .then((body) => {
