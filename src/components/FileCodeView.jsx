@@ -142,10 +142,11 @@ function MindMap({ data, hovered, onHover, filePath, activeRoot }) {
     dragRef.current = { sx: e.clientX, sy: e.clientY, vx: view.x, vy: view.y }
   }
   function onMouseMove(e) {
-    if (!dragRef.current) return
+    const drag = dragRef.current
+    if (!drag) return
     setView(v => ({ ...v,
-      x: dragRef.current.vx + (e.clientX - dragRef.current.sx),
-      y: dragRef.current.vy + (e.clientY - dragRef.current.sy),
+      x: drag.vx + (e.clientX - drag.sx),
+      y: drag.vy + (e.clientY - drag.sy),
     }))
   }
   function onMouseUp() { dragRef.current = null }
