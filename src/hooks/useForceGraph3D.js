@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import ForceGraph3D from '3d-force-graph'
-import { forceZ } from 'd3-force-3d'
+import { forceZ, forceRadial } from 'd3-force-3d'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import SpriteText from 'three-spritetext'
 
@@ -13,13 +13,18 @@ const LABEL_OFFSET   = 14     // world-units gap between sphere edge and label
 
 // ── Default layout options (all overridable per hook instance) ───────────────
 export const DEFAULT_LAYOUT_OPTIONS = {
-  zDepthScale:    220,   // z-distance per depth level (depthPinned only)
-  zStrength:      1,     // forceZ strength (depthPinned only)
-  chargeStrength: -120,  // negative = repel nodes apart
+  // depthPinned
+  zDepthScale:    220,   // z-distance per depth level
+  zStrength:      1,     // forceZ strength
+  // orbital
+  orbitRadius:    160,   // shell radius per depth level
+  radialStrength: 0.9,   // how firmly nodes are pulled to their shell
+  // shared
+  chargeStrength: -120,  // node repulsion (negative = push apart)
   linkDistance:   40,    // preferred edge length
   linkStrength:   0.5,   // spring stiffness
-  alphaDecay:     0.0228,// simulation cooling speed (default d3 = 0.0228)
-  velocityDecay:  0.4,   // damping (higher = faster settle)
+  alphaDecay:     0.0228,// simulation cooling speed
+  velocityDecay:  0.4,   // damping
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
@@ -36,6 +41,22 @@ function hexToRGB(hex) {
 /** rgba string from hex + alpha */
 function withAlpha(hex, alpha) {
   return `rgba(${hexToRGB(hex)},${alpha})`
+}
+
+/**
+ * Distribute N points evenly on a sphere of radius r using the Fibonacci lattice.
+ * Returns array of {x, y, z}.
+ */
+function fibonacciSphere(n, r) {
+  const pts = []
+  const phi = Math.PI * (Math.sqrt(5) - 1) // golden angle
+  for (let i = 0; i < n; i++) {
+    const y = 1 - (i / Math.max(n - 1, 1)) * 2
+    const rr = Math.sqrt(1 - y * y)
+    const theta = phi * i
+    pts.push({ x: rr * Math.cos(theta) * r, y: y * r, z: rr * Math.sin(theta) * r })
+  }
+  return pts
 }
 
 /**
@@ -62,7 +83,7 @@ function snapshotNodes(rawNodes) {
  *   onReady?: (nodeCount: number) => void,
  *   onClearFocus?: () => void,
  *   getImpactZone?: (key) => Map<string, number>,
- *   layoutMode?: 'depthPinned' | 'free',  // 'depthPinned' = FileMap z-axis layout
+   *   layoutMode?: 'depthPinned' | 'orbital' | 'free',
  * }} callbacks
  * @returns {{
  *   load: (nodes, edges, rootKey?, extraEdges?) => void,
@@ -311,8 +332,33 @@ export function useForceGraph3D(containerRef, {
     if (layoutMode === 'depthPinned') {
       // Pin z per depth level before adding data so the force is active from the start
       g.d3Force('z', forceZ(n => n.fz ?? 0).strength(opts.zStrength))
+      g.d3Force('radial', null)
+    } else if (layoutMode === 'orbital') {
+      // Solar-system layout: each depth level = concentric spherical shell
+      // Pre-position nodes on Fibonacci spheres so simulation starts spread out
+      const byDepth = {}
+      gNodes.forEach(n => {
+        const d = n.depth ?? 0
+        ;(byDepth[d] ??= []).push(n)
+      })
+      Object.entries(byDepth).forEach(([depthStr, depthNodes]) => {
+        const d = Number(depthStr)
+        const r = d * opts.orbitRadius
+        if (d === 0) {
+          depthNodes.forEach(n => { n.x = 0; n.y = 0; n.z = 0 })
+        } else {
+          const pts = fibonacciSphere(depthNodes.length, r)
+          depthNodes.forEach((n, i) => Object.assign(n, pts[i]))
+        }
+      })
+      // Radial force: pull each node to its orbital shell radius
+      g.d3Force('radial', forceRadial(
+        n => (n.depth ?? 0) * opts.orbitRadius, 0, 0, 0
+      ).strength(opts.radialStrength))
+      g.d3Force('z', null)
     } else {
-      g.d3Force('z', null) // clear any leftover z-force from a previous load
+      g.d3Force('z', null)
+      g.d3Force('radial', null)
     }
     // Tune charge, link distance and simulation speed
     g.d3Force('charge')?.strength(opts.chargeStrength)

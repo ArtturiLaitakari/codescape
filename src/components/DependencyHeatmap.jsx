@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
-import { useForceGraph3D } from '../hooks/useForceGraph3D.js'
+import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useForceGraph3D.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { fanInColor, fanInSize, HEATMAP_LEGEND_STOPS } from '../lib/heatmap-colors.js'
 import { t, tf, impactStatusMsg } from '../lib/i18n.js'
@@ -53,7 +53,18 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sigmaGraph = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode })
-  const forceGraph = useForceGraph3D(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
+  const forceGraph = useForceGraph3D(containerRef, {
+    onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
+    layoutMode: 'orbital',
+    layoutOptions: {
+      ...DEFAULT_LAYOUT_OPTIONS,
+      orbitRadius:    140,  // shell radius per directory depth level
+      radialStrength: 0.8,  // import edges pull nodes off their shell, so softer
+      chargeStrength: -80,
+      linkDistance:   50,
+      linkStrength:   0.15,
+    },
+  })
   const { load, getNodes, setFilter, refreshTheme } = is3D ? forceGraph : sigmaGraph
 
   const loadGraph = useCallback((targetPath) => {

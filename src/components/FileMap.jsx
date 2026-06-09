@@ -40,14 +40,14 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, 
   const sigmaGraph = useSigmaGraph(is3D ? null : containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
   const forceGraph = useForceGraph3D(is3D ? containerRef : null, {
     onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
-    layoutMode: 'depthPinned',
+    layoutMode: 'orbital',
     layoutOptions: {
       ...DEFAULT_LAYOUT_OPTIONS,
-      zDepthScale:    220,  // z-distance per directory depth
-      zStrength:      1,    // how hard nodes are pinned to their z-level
-      chargeStrength: -80,  // node repulsion (less than default → tighter tree)
-      linkDistance:   30,   // preferred edge length in the xy-plane
-      linkStrength:   0.8,  // spring stiffness (higher → tighter clustering)
+      orbitRadius:    150,  // shell radius per directory depth level
+      radialStrength: 0.9,  // how firmly nodes are pulled to their shell
+      chargeStrength: -60,  // node repulsion within each shell
+      linkDistance:   40,   // parent–child edge length
+      linkStrength:   0.2,  // soft spring so orbital force dominates
     },
   })
   const { load, getNodes, setFilter, refreshTheme } = is3D ? forceGraph : sigmaGraph

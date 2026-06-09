@@ -1,8 +1,20 @@
 /**
  * Color scale for runtime heatmap.
  * Low score = green (fast), high score = red (slow / expensive).
- * Score formula: dbCallCount * 3 + apiCallCount * 2 + cyclomatic * 0.5
  */
+
+// ── Score weights ─────────────────────────────────────────────────────────────
+export const SCORE_WEIGHTS = { db: 3, api: 2, cyclomatic: 0.5 }
+
+/**
+ * Compute the runtime score for a single file's metrics.
+ * @param {{ dbCallCount: number, apiCallCount: number, cyclomatic: number }} d
+ */
+export function calcRuntimeScore(d) {
+  return d.dbCallCount * SCORE_WEIGHTS.db
+       + d.apiCallCount * SCORE_WEIGHTS.api
+       + (d.cyclomatic ?? 1) * SCORE_WEIGHTS.cyclomatic
+}
 
 function lerpColor(a, b, t) {
   const ah = parseInt(a.slice(1), 16)
