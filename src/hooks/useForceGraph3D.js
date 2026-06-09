@@ -179,7 +179,6 @@ export function useForceGraph3D(containerRef, {
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   const destroy = useCallback(() => {
-    console.log('[3D] destroy — had graph:', !!graphRef.current)
     if (graphRef.current) {
       try {
         graphRef.current.pauseAnimation()
@@ -200,20 +199,12 @@ export function useForceGraph3D(containerRef, {
   const ensureGraph = useCallback(() => {
     if (graphRef.current) return graphRef.current
     const container = containerRef.current
-    if (!container) {
-      console.log('[3D] ensureGraph — no container ref')
-      return null
-    }
+    if (!container) return null
 
     // 3d-force-graph reads clientWidth/clientHeight at init — must be > 0
     const w = container.clientWidth
     const h = container.clientHeight
-    if (w === 0 || h === 0) {
-      console.log('[3D] ensureGraph — container 0×0, will retry')
-      return null
-    }
-
-    console.log(`[3D] ensureGraph — creating ForceGraph3D in ${w}×${h} container`)
+    if (w === 0 || h === 0) return null
 
     const bg = getComputedStyle(document.documentElement)
       .getPropertyValue('--cs-graph-bg').trim() || '#0f172a'
@@ -275,7 +266,6 @@ export function useForceGraph3D(containerRef, {
       })
 
     graphRef.current = g
-    console.log('[3D] ensureGraph — ForceGraph3D instance created')
     return g
   }, [containerRef]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -288,13 +278,10 @@ export function useForceGraph3D(containerRef, {
   const load = useCallback((nodes, edges, rootKey, extraEdges) => {
     // If the container isn't laid out yet (0×0), retry on next animation frame
     if (!ensureGraph()) {
-      console.log('[3D] load — container not ready, scheduling rAF retry')
       requestAnimationFrame(() => load(nodes, edges, rootKey, extraEdges))
       return
     }
     const g = ensureGraph()
-    console.log(`[3D] load — ${nodes.length} nodes, ${edges.length} tree edges, ${extraEdges?.length ?? 0} extra edges, layoutMode=${layoutMode}, rootKey=${rootKey}`)
-
     focusRef.current  = null
     filterRef.current = null
 
@@ -321,13 +308,19 @@ export function useForceGraph3D(containerRef, {
     nodesRef.current  = gNodes
     nodeMapRef.current = nodeMap
 
-    // Build link objects
+    // Build link objects — filter to only edges where BOTH endpoints exist in gNodes.
+    // treeEdges from the server may reference files that were excluded from the node list
+    // (e.g. README.md filtered out because it's not a JS/TS file in RuntimeHeatmap).
+    // d3-force link force throws "node not found" if any link endpoint is missing.
+    const nodeIdSet = new Set(gNodes.map(n => n.id))
     const allEdges = [...edges, ...(extraEdges ?? [])]
-    const gLinks = allEdges.map(({ source, target }) => ({
-      source,
-      target,
-      _baseColor: `rgba(51,65,85,${EDGE_OPACITY})`,
-    }))
+    const gLinks = allEdges
+      .filter(({ source, target }) => nodeIdSet.has(source) && nodeIdSet.has(target))
+      .map(({ source, target }) => ({
+        source,
+        target,
+        _baseColor: `rgba(51,65,85,${EDGE_OPACITY})`,
+      }))
 
     if (layoutMode === 'depthPinned') {
       // Pin z per depth level before adding data so the force is active from the start
@@ -376,14 +369,12 @@ export function useForceGraph3D(containerRef, {
     requestAnimationFrame(() => {
       if (_readyFired) return
       _readyFired = true
-      console.log(`[3D] first frame rendered → onReady(${gNodes.length})`)
       onReadyRef.current?.(gNodes.length)
     })
 
     // Fallback: if rAF somehow never ran (hidden tab etc.)
     const readyTimer = setTimeout(() => {
       if (!_readyFired) {
-        console.warn('[3D] onReady fallback timer fired')
         _readyFired = true
         onReadyRef.current?.(gNodes.length)
       }
@@ -396,8 +387,6 @@ export function useForceGraph3D(containerRef, {
         _readyFired = true
         onReadyRef.current?.(gNodes.length)
       }
-      console.log(`[3D] onEngineStop — simulation settled`)
-
       // Pan camera to root node once simulation has settled and coordinates are final
       if (rootKey) {
         const root = nodeMapRef.current[rootKey]
@@ -409,7 +398,6 @@ export function useForceGraph3D(containerRef, {
             root,
             800
           )
-          console.log(`[3D] onEngineStop — camera focused on root "${rootKey}"`)
         }
       }
     })
@@ -446,13 +434,16 @@ export function useForceGraph3D(containerRef, {
 
   /**
    * Update node attributes in-place (used by RuntimeHeatmap for SSE streaming).
+   * Uses g.refresh() instead of g.graphData() so the simulation is NOT reheated —
+   * calling graphData() every batch was restarting alpha=1 repeatedly and causing
+   * nodes to never settle (all converging to one point).
    */
   const patchNodes = useCallback((updates) => {
     const g = graphRef.current
     if (!g) return
-    const data = g.graphData()
+    const { nodes } = g.graphData()
     for (const { key, attributes } of updates) {
-      const node = data.nodes.find(n => n.id === key)
+      const node = nodes.find(n => n.id === key)
       if (!node) continue
       Object.assign(node, attributes)
       if (attributes.color) node._baseColor = attributes.color
@@ -460,7 +451,9 @@ export function useForceGraph3D(containerRef, {
       // Update nodeMap too
       if (nodeMapRef.current[key]) Object.assign(nodeMapRef.current[key], attributes)
     }
-    g.graphData(data)
+    // refresh() sets _flushObjects=true → rebuilds spheres (sizes) + sprites (colors)
+    // without touching the simulation or reheating alpha
+    g.refresh()
   }, [])
 
   /**
