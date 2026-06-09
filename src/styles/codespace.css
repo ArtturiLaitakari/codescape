@@ -588,6 +588,8 @@
 /* ── Tab navigation ───────────────────────────────────────────────────────── */
 
 .cs-tabnav {
+  position: relative;
+  z-index: 20;
   display: flex;
   align-self: center;
   align-items: center;

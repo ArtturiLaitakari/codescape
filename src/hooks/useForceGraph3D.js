@@ -96,7 +96,7 @@ function colorForLink(link, focus, filter) {
 // Below this → text shrinks (you're close); above → text grows sub-linearly.
 const LABEL_REF_DIST = 200
 // Exponent < 1 → sub-linear growth. 0.35: at 4× dist text is ~1.6× bigger, not 4×.
-const LABEL_DIST_EXP = 0.8
+const LABEL_DIST_EXP = 0.35
 
 /** Build a node sprite (label) for a graph node. Caller assigns initial color. */
 function createNodeSprite(node, color) {
@@ -118,7 +118,6 @@ function createNodeSprite(node, color) {
     if (bx === 0) { bx = sprite.scale.x; by = sprite.scale.y }
     const dist = Math.max(camera.position.length(), 40)
     const f = Math.pow(dist / LABEL_REF_DIST, LABEL_DIST_EXP)
-    console.log('dist', dist, 'scale', f)
     sprite.scale.set(bx * f, by * f, 1)
   }
 
@@ -197,9 +196,10 @@ export function useForceGraph3D(containerRef, {
 } = {}) {
   const opts = { ...DEFAULT_LAYOUT_OPTIONS, ...layoutOptions }
 
-  const graphRef    = useRef(null)
-  const nodesRef    = useRef([])
-  const nodeMapRef  = useRef({})
+  const graphRef          = useRef(null)
+  const resizeObserverRef = useRef(null)
+  const nodesRef          = useRef([])
+  const nodeMapRef        = useRef({})
   const focusRef    = useRef(null)   // { node, neighbors: Set, impactZone: Map|null }
   const filterRef   = useRef(null)   // Set<string> | null
   const lastClickAt = useRef(0)
@@ -217,6 +217,8 @@ export function useForceGraph3D(containerRef, {
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   const destroy = useCallback(() => {
+    resizeObserverRef.current?.disconnect()
+    resizeObserverRef.current = null
     if (graphRef.current) {
       try {
         graphRef.current.pauseAnimation()
@@ -273,6 +275,17 @@ export function useForceGraph3D(containerRef, {
       })
 
     graphRef.current = g
+
+    // Keep canvas sized to container on window/panel resize
+    const ro = new ResizeObserver(() => {
+      const w = container.clientWidth
+      const h = container.clientHeight
+      if (w > 0 && h > 0) g.width(w).height(h)
+    })
+    ro.observe(container)
+    // Store so we can disconnect on destroy
+    resizeObserverRef.current = ro
+
     return g
   }, [containerRef])
 
