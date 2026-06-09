@@ -655,7 +655,7 @@
   border-color: var(--cs-accent);
 }
 
-.cs-langwrap { position: relative; }
+.cs-langwrap { position: relative; z-index: 40; }
 
 .cs-langmenu {
   position: absolute;
