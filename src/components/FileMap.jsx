@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
+import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useForceGraph3D.js'
 import { nodeColor, LEGEND } from '../lib/graph-colors.js'
 import { t, tf } from '../lib/i18n.js'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import FileCodeView from './FileCodeView.jsx'
 
-export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, onViewReady }) {
+export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, onViewReady }) {
   const containerRef = useRef(null)
   const [status, setStatus] = useState('loading')
   const [hovered, setHovered]   = useState(null)
@@ -36,7 +37,20 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, 
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { load, getNodes, setFilter, refreshTheme } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
+  const sigmaGraph = useSigmaGraph(is3D ? null : containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
+  const forceGraph = useForceGraph3D(is3D ? containerRef : null, {
+    onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
+    layoutMode: 'depthPinned',
+    layoutOptions: {
+      ...DEFAULT_LAYOUT_OPTIONS,
+      zDepthScale:    220,  // z-distance per directory depth
+      zStrength:      1,    // how hard nodes are pinned to their z-level
+      chargeStrength: -80,  // node repulsion (less than default → tighter tree)
+      linkDistance:   30,   // preferred edge length in the xy-plane
+      linkStrength:   0.8,  // spring stiffness (higher → tighter clustering)
+    },
+  })
+  const { load, getNodes, setFilter, refreshTheme } = is3D ? forceGraph : sigmaGraph
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')

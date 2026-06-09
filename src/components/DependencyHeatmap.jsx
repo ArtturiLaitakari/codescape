@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
+import { useForceGraph3D } from '../hooks/useForceGraph3D.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { fanInColor, fanInSize, HEATMAP_LEGEND_STOPS } from '../lib/heatmap-colors.js'
 import { t, tf, impactStatusMsg } from '../lib/i18n.js'
@@ -10,7 +11,7 @@ import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import { ImpactDepthLegend } from './ImpactDepthLegend.jsx'
 import FileCodeView from './FileCodeView.jsx'
 
-export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi', theme, onViewReady }) {
+export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, onViewReady }) {
   const containerRef = useRef(null)
   const reverseAdjRef = useRef({})
   const forwardImportRef = useRef({})
@@ -51,7 +52,9 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { load, getNodes, setFilter, refreshTheme } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode })
+  const sigmaGraph = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode })
+  const forceGraph = useForceGraph3D(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
+  const { load, getNodes, setFilter, refreshTheme } = is3D ? forceGraph : sigmaGraph
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')

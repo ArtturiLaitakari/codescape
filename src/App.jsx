@@ -20,6 +20,7 @@ export default function App() {
   const [lang, setLang] = useState('en')
   const [theme, setTheme] = useState('dark')
   const [viewReady, setViewReady] = useState(false)
+  const [is3D, setIs3D] = useState(false)
 
   function handleViewChange(id) {
     setViewReady(false)
@@ -34,13 +35,18 @@ export default function App() {
     })
   }
 
+  function toggle3D() {
+    setViewReady(false)
+    setIs3D(v => !v)
+  }
+
   return (
     <div className="cs-app">
-      <TabNav views={VIEWS} active={activeView} onChange={handleViewChange} lang={lang} onLangChange={setLang} theme={theme} onThemeToggle={toggleTheme} />
+      <TabNav views={VIEWS} active={activeView} onChange={handleViewChange} lang={lang} onLangChange={setLang} theme={theme} onThemeToggle={toggleTheme} is3D={is3D} on3DToggle={toggle3D} />
 
-      {activeView === 'filemap'  && <FileMap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} onViewReady={() => setViewReady(true)} />}
-      {activeView === 'heatmap'  && <DependencyHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} onViewReady={() => setViewReady(true)} />}
-      {activeView === 'runtime'  && <RuntimeHeatmap sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'filemap'  && <FileMap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'heatmap'  && <DependencyHeatmap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'runtime'  && <RuntimeHeatmap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
 
       {!viewReady && (
         <div className="cs-spinner-wrap cs-spinner-wrap--view">
@@ -56,7 +62,7 @@ export default function App() {
   )
 }
 
-function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeToggle }) {
+function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeToggle, is3D, on3DToggle }) {
   const [open, setOpen] = useState(false)
   const popupRef = useRef(null)
 
@@ -97,7 +103,16 @@ function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeTog
 
       <div className="cs-tabnav__sep" />
 
-      {/* Flag button + popup */}
+      {/* 3D toggle */}
+      <button
+        onClick={on3DToggle}
+        title={is3D ? 'Switch to 2D view' : 'Switch to 3D view'}
+        className={`cs-iconbtn cs-iconbtn--3d${is3D ? ' cs-iconbtn--3d-active' : ''}`}
+      >
+        3D
+      </button>
+
+      <div className="cs-tabnav__sep" />
       <div ref={popupRef} className="cs-langwrap">
         <button
           onClick={() => setOpen((v) => !v)}

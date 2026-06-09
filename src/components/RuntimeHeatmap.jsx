@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
+import { useForceGraph3D } from '../hooks/useForceGraph3D.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import {
   runtimeColor, runtimeSize,
@@ -33,7 +34,7 @@ function filterBand(fileList, bandId) {
   return fileList.filter(f => f.tScore >= band.minT && f.tScore < (band.maxT ?? Infinity))
 }
 
-export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', theme, onViewReady }) {
+export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', theme, is3D, onViewReady }) {
   const containerRef = useRef(null)
   const [status, setStatus]     = useState('loading')
   const [hovered, setHovered]   = useState(null)
@@ -73,9 +74,9 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const { load, getNodes, setFilter, patchNodes, addEdges, focusNode, refreshTheme } = useSigmaGraph(containerRef, {
-    onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
-  })
+  const sigmaGraph = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
+  const forceGraph = useForceGraph3D(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
+  const { load, getNodes, setFilter, patchNodes, addEdges, focusNode, refreshTheme } = is3D ? forceGraph : sigmaGraph
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
