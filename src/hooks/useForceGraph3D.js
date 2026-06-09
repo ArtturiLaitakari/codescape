@@ -5,51 +5,52 @@ import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import SpriteText from 'three-spritetext'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const DIM_OPACITY    = 0.08
-const FILTER_OPACITY = 0.06
-const EDGE_OPACITY   = 0.3
-const Z_DEPTH_SCALE  = 220   // px per depth level on z-axis (FileMap depthPinned layout)
-const LABEL_OFFSET   = 14     // world-units gap between sphere edge and label
+const DIM_OPACITY     = 0.08
+const FILTER_OPACITY  = 0.06
+const EDGE_OPACITY    = 0.3
+const LABEL_OFFSET    = 14
+const MISSING_COLOR   = '#6b7280'
+const HIDDEN_LINK     = 'rgba(51,65,85,0)'
+const TREE_LINK_COLOR = `rgba(51,65,85,${EDGE_OPACITY})`
+const EXTRA_LINK_COLOR = `rgba(71,85,105,${EDGE_OPACITY})`
+const DEFAULT_BG      = '#0f172a'
+const IMPACT_COLORS   = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
+const DBL_CLICK_MS    = 300
+const READY_FALLBACK_MS = 2000
+const CAMERA_DIST_CLICK = 120
+const CAMERA_DIST_ROOT  = 400
+const CAMERA_DUR_CLICK  = 600
+const CAMERA_DUR_ROOT   = 800
 
-// ── Default layout options (all overridable per hook instance) ───────────────
 export const DEFAULT_LAYOUT_OPTIONS = {
-  // depthPinned
-  zDepthScale:    220,   // z-distance per depth level
-  zStrength:      1,     // forceZ strength
-  // orbital
-  orbitRadius:    160,   // shell radius per depth level
-  radialStrength: 0.9,   // how firmly nodes are pulled to their shell
-  // shared
-  chargeStrength: -120,  // node repulsion (negative = push apart)
-  linkDistance:   40,    // preferred edge length
-  linkStrength:   0.5,   // spring stiffness
-  alphaDecay:     0.0228,// simulation cooling speed
-  velocityDecay:  0.4,   // damping
+  zDepthScale:    220,
+  zStrength:      1,
+  orbitRadius:    160,
+  radialStrength: 0.9,
+  chargeStrength: -120,
+  linkDistance:   40,
+  linkStrength:   0.5,
+  alphaDecay:     0.0228,
+  velocityDecay:  0.4,
 }
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
-/** Extract r,g,b from #rrggbb and return "r,g,b" */
+const baseColor = (node) => node._baseColor ?? MISSING_COLOR
+
+const linkEnd = (e) => (typeof e === 'object' ? e.id : e)
+
 function hexToRGB(hex) {
   const h = hex.replace('#', '')
-  const r = parseInt(h.slice(0, 2), 16)
-  const g = parseInt(h.slice(2, 4), 16)
-  const b = parseInt(h.slice(4, 6), 16)
-  return `${r},${g},${b}`
+  return `${parseInt(h.slice(0, 2), 16)},${parseInt(h.slice(2, 4), 16)},${parseInt(h.slice(4, 6), 16)}`
 }
 
-/** rgba string from hex + alpha */
-function withAlpha(hex, alpha) {
-  return `rgba(${hexToRGB(hex)},${alpha})`
-}
+const withAlpha = (hex, alpha) => `rgba(${hexToRGB(hex)},${alpha})`
 
-/**
- * Distribute N points evenly on a sphere of radius r using the Fibonacci lattice.
- * Returns array of {x, y, z}.
- */
+/** Distribute N points evenly on a sphere of radius r using the Fibonacci lattice. */
 function fibonacciSphere(n, r) {
+  const phi = Math.PI * (Math.sqrt(5) - 1)
   const pts = []
-  const phi = Math.PI * (Math.sqrt(5) - 1) // golden angle
   for (let i = 0; i < n; i++) {
     const y = 1 - (i / Math.max(n - 1, 1)) * 2
     const rr = Math.sqrt(1 - y * y)
@@ -59,124 +60,162 @@ function fibonacciSphere(n, r) {
   return pts
 }
 
+const snapshotNodes = (raw) =>
+  raw.map(({ id, label, kind, ext }) => ({ key: id, label, kind, ext }))
+
+const readBgColor = () =>
+  getComputedStyle(document.documentElement).getPropertyValue('--cs-graph-bg').trim() || DEFAULT_BG
+
+/** Pan camera so it ends up `dist` units from `node` along its current direction. */
+function panCameraTo(g, node, dist, duration) {
+  if (!g || !node || node.x == null) return
+  const ratio = 1 + dist / Math.hypot(node.x || 1, node.y || 1, node.z || 1)
+  g.cameraPosition(
+    { x: (node.x || 0) * ratio, y: (node.y || 0) * ratio, z: (node.z || 0) * ratio },
+    node,
+    duration,
+  )
+}
+
+/** Compute appearance color for one node given the current focus/filter state. */
+function colorForNode(node, focus, filter) {
+  if (focus?.impactZone) {
+    const depth = focus.impactZone.get(node.id)
+    return depth === undefined
+      ? withAlpha(baseColor(node), DIM_OPACITY)
+      : IMPACT_COLORS[Math.min(depth, IMPACT_COLORS.length - 1)]
+  }
+  if (focus) {
+    return node.id === focus.node || focus.neighbors.has(node.id)
+      ? baseColor(node)
+      : withAlpha(baseColor(node), DIM_OPACITY)
+  }
+  if (filter && !filter.has(node.id)) {
+    return withAlpha(baseColor(node), FILTER_OPACITY)
+  }
+  return baseColor(node)
+}
+
+/** Compute appearance color for one link given the current focus/filter state. */
+function colorForLink(link, focus, filter) {
+  const src = linkEnd(link.source)
+  const tgt = linkEnd(link.target)
+  const visible = link._baseColor ?? TREE_LINK_COLOR
+
+  if (focus?.impactZone) {
+    return focus.impactZone.has(src) && focus.impactZone.has(tgt) ? visible : HIDDEN_LINK
+  }
+  if (focus) {
+    return src === focus.node || tgt === focus.node ? visible : HIDDEN_LINK
+  }
+  if (filter && !filter.has(src) && !filter.has(tgt)) return HIDDEN_LINK
+  return visible
+}
+
+/** Build a node sprite (label) for a graph node. Caller assigns initial color. */
+function createNodeSprite(node, color) {
+  const sprite = new SpriteText(node.label ?? node.id)
+  sprite.color = color
+  sprite.textHeight = 3
+  sprite.fontFace = 'monospace'
+  sprite.strokeWidth = 0
+  sprite.backgroundColor = 'rgba(0,0,0,0)'
+  // Sphere radius = cbrt(_size) * nodeRelSize(=4)
+  const sphereR = Math.cbrt(node._size ?? 4) * 4
+  sprite.position.set(sphereR + LABEL_OFFSET, 0, 0)
+  return sprite
+}
+
 /**
- * Snapshot a lightweight node list for the search bar — same shape as useSigmaGraph.
+ * Pre-position nodes for orbital layout: each depth level lives on a Fibonacci
+ * sphere of radius `depth * orbitRadius`. Mutates nodes in place.
  */
-function snapshotNodes(rawNodes) {
-  return rawNodes.map(({ id, label, kind, ext }) => ({ key: id, label, kind, ext }))
+function prepositionOrbital(gNodes, orbitRadius) {
+  const byDepth = {}
+  for (const n of gNodes) {
+    const d = n.depth ?? 0
+    ;(byDepth[d] ??= []).push(n)
+  }
+  for (const [depthStr, depthNodes] of Object.entries(byDepth)) {
+    const d = Number(depthStr)
+    if (d === 0) {
+      for (const n of depthNodes) { n.x = 0; n.y = 0; n.z = 0 }
+      continue
+    }
+    const pts = fibonacciSphere(depthNodes.length, d * orbitRadius)
+    depthNodes.forEach((n, i) => Object.assign(n, pts[i]))
+  }
+}
+
+/** Configure d3 forces and per-node fixed attributes for the chosen layout mode. */
+function applyLayout(g, gNodes, mode, opts) {
+  if (mode === 'depthPinned') {
+    for (const n of gNodes) {
+      if (n.depth != null) n.fz = -(n.depth * opts.zDepthScale)
+    }
+    g.d3Force('z', forceZ((n) => n.fz ?? 0).strength(opts.zStrength))
+    g.d3Force('radial', null)
+  } else if (mode === 'orbital') {
+    prepositionOrbital(gNodes, opts.orbitRadius)
+    g.d3Force(
+      'radial',
+      forceRadial((n) => (n.depth ?? 0) * opts.orbitRadius, 0, 0, 0).strength(opts.radialStrength),
+    )
+    g.d3Force('z', null)
+  } else {
+    g.d3Force('z', null)
+    g.d3Force('radial', null)
+  }
+  g.d3Force('charge')?.strength(opts.chargeStrength)
+  g.d3Force('link')?.distance(opts.linkDistance).strength(opts.linkStrength)
+  g.d3AlphaDecay(opts.alphaDecay)
+  g.d3VelocityDecay(opts.velocityDecay)
+}
+
+/**
+ * Fire `cb` exactly once: on next animation frame, on simulation stop, or after
+ * a fallback timeout — whichever comes first. Returns the timer so callers can
+ * clear it from `onEngineStop`.
+ */
+function scheduleReady(cb) {
+  let fired = false
+  const fire = () => { if (!fired) { fired = true; cb() } }
+  requestAnimationFrame(fire)
+  const timer = setTimeout(fire, READY_FALLBACK_MS)
+  return { fire, timer }
 }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 /**
- * Drop-in replacement for useSigmaGraph that uses 3d-force-graph.
- *
- * Returned API mirrors useSigmaGraph exactly so view components need only
- * switch which hook they import.
- *
- * @param {React.RefObject<HTMLElement>} containerRef
- * @param {{
- *   onEnterNode?: (key, attrs) => void,
- *   onLeaveNode?: () => void,
- *   onClickNode?: (key, attrs) => void,
- *   onDoubleClickNode?: (key, attrs) => void,
- *   onReady?: (nodeCount: number) => void,
- *   onClearFocus?: () => void,
- *   getImpactZone?: (key) => Map<string, number>,
-   *   layoutMode?: 'depthPinned' | 'orbital' | 'free',
- * }} callbacks
- * @returns {{
- *   load: (nodes, edges, rootKey?, extraEdges?) => void,
- *   focusNode: (key) => void,
- *   getNodes: () => Array<{ key, label, kind, ext }>,
- *   setFilter: (keys: Set<string> | null) => void,
- *   patchNodes: (updates: Array<{ key, attributes }>) => void,
- *   addEdges: (edges) => void,
- *   refreshTheme: () => void,
- * }}
+ * Drop-in replacement for useSigmaGraph that renders with 3d-force-graph.
+ * Public API is identical to useSigmaGraph so views can switch by import.
  */
 export function useForceGraph3D(containerRef, {
-  onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus,
-  onClickNode, onDoubleClickNode, layoutMode = 'free', layoutOptions = {},
+  onEnterNode, onLeaveNode, onReady, getImpactZone,
+  onClickNode, onDoubleClickNode,
+  layoutMode = 'free', layoutOptions = {},
 } = {}) {
   const opts = { ...DEFAULT_LAYOUT_OPTIONS, ...layoutOptions }
-  const graphRef   = useRef(null)   // ForceGraph3D instance
-  const nodesRef   = useRef([])     // raw node objects with all attrs
-  const nodeMapRef = useRef({})     // id → node object
 
-  // Mutable refs (avoids re-creating graph when callbacks change)
-  const focusRef   = useRef(null)   // null | { node: id, neighbors: Set, impactZone: Map|null }
-  const filterRef  = useRef(null)   // null | Set<string>
+  const graphRef    = useRef(null)
+  const nodesRef    = useRef([])
+  const nodeMapRef  = useRef({})
+  const focusRef    = useRef(null)   // { node, neighbors: Set, impactZone: Map|null }
+  const filterRef   = useRef(null)   // Set<string> | null
+  const lastClickAt = useRef(0)
 
-  // Keep color functions in refs so the graph always calls the latest closure
-  // without needing to recreate the entire graph instance
+  // Always-current callback access (avoids re-creating the graph instance)
+  const cbRef = useRef({})
+  cbRef.current = { onEnterNode, onLeaveNode, onClickNode, onDoubleClickNode, onReady, getImpactZone }
+
+  // Color closures — refs so the graph always uses the latest focus/filter state
   const nodeColorFnRef = useRef(null)
   const linkColorFnRef = useRef(null)
+  nodeColorFnRef.current = (n) => colorForNode(n, focusRef.current, filterRef.current)
+  linkColorFnRef.current = (l) => colorForLink(l, focusRef.current, filterRef.current)
 
-  // Refs for stable callback access
-  const onEnterRef      = useRef(onEnterNode)
-  const onLeaveRef      = useRef(onLeaveNode)
-  const onClickRef      = useRef(onClickNode)
-  const onDblClickRef   = useRef(onDoubleClickNode)
-  const onReadyRef      = useRef(onReady)
-  const getImpactRef    = useRef(getImpactZone)
-  const lastClickTime   = useRef(0)
-
-  useEffect(() => { onEnterRef.current = onEnterNode },    [onEnterNode])
-  useEffect(() => { onLeaveRef.current = onLeaveNode },    [onLeaveNode])
-  useEffect(() => { onClickRef.current = onClickNode },    [onClickNode])
-  useEffect(() => { onDblClickRef.current = onDoubleClickNode }, [onDoubleClickNode])
-  useEffect(() => { onReadyRef.current = onReady },        [onReady])
-  useEffect(() => { getImpactRef.current = getImpactZone },[getImpactZone])
-
-  // ── Color logic ────────────────────────────────────────────────────────────
-
-  // Update color fn refs on every render so graph always uses latest focus/filter state
-  nodeColorFnRef.current = function nodeColorFn(node) {
-    const focus  = focusRef.current
-    const filter = filterRef.current
-
-    if (focus?.impactZone) {
-      const depth = focus.impactZone.get(node.id)
-      if (depth === undefined) return withAlpha(node._baseColor ?? '#6b7280', DIM_OPACITY)
-      const IMPACT_COLORS = ['#fbbf24', '#f97316', '#f59e0b', '#fde68a']
-      return IMPACT_COLORS[Math.min(depth, IMPACT_COLORS.length - 1)]
-    }
-
-    if (focus) {
-      if (node.id !== focus.node && !focus.neighbors.has(node.id)) {
-        return withAlpha(node._baseColor ?? '#6b7280', DIM_OPACITY)
-      }
-      return node._baseColor ?? '#6b7280'
-    }
-
-    if (filter && !filter.has(node.id)) {
-      return withAlpha(node._baseColor ?? '#6b7280', FILTER_OPACITY)
-    }
-
-    return node._baseColor ?? '#6b7280'
-  }
-
-  linkColorFnRef.current = function linkColorFn(link) {
-    const focus  = focusRef.current
-    const filter = filterRef.current
-    const src = typeof link.source === 'object' ? link.source.id : link.source
-    const tgt = typeof link.target === 'object' ? link.target.id : link.target
-
-    if (focus?.impactZone) {
-      if (!focus.impactZone.has(src) || !focus.impactZone.has(tgt)) return 'rgba(51,65,85,0)'
-      return link._baseColor ?? `rgba(51,65,85,${EDGE_OPACITY})`
-    }
-    if (focus) {
-      if (src !== focus.node && tgt !== focus.node) return 'rgba(51,65,85,0)'
-      return link._baseColor ?? `rgba(51,65,85,${EDGE_OPACITY})`
-    }
-    if (filter && !filter.has(src) && !filter.has(tgt)) return 'rgba(51,65,85,0)'
-
-    return link._baseColor ?? `rgba(51,65,85,${EDGE_OPACITY})`
-  }
-
-  // ── Lifecycle ──────────────────────────────────────────────────────────────
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   const destroy = useCallback(() => {
     if (graphRef.current) {
@@ -186,238 +225,107 @@ export function useForceGraph3D(containerRef, {
       } catch { /* ignore disposal errors */ }
       graphRef.current = null
     }
-    nodesRef.current  = []
+    nodesRef.current = []
     nodeMapRef.current = {}
-    focusRef.current  = null
+    focusRef.current = null
     filterRef.current = null
   }, [])
 
   useEffect(() => () => destroy(), [destroy])
 
-  // ── Graph construction ─────────────────────────────────────────────────────
+  // ── Graph construction ────────────────────────────────────────────────────
 
   const ensureGraph = useCallback(() => {
     if (graphRef.current) return graphRef.current
     const container = containerRef.current
-    if (!container) return null
-
-    // 3d-force-graph reads clientWidth/clientHeight at init — must be > 0
-    const w = container.clientWidth
-    const h = container.clientHeight
-    if (w === 0 || h === 0) return null
-
-    const bg = getComputedStyle(document.documentElement)
-      .getPropertyValue('--cs-graph-bg').trim() || '#0f172a'
+    if (!container || container.clientWidth === 0 || container.clientHeight === 0) return null
 
     const g = ForceGraph3D({ antialias: true, alpha: false })(container)
-      .backgroundColor(bg)
+      .backgroundColor(readBgColor())
       .nodeId('id')
-      .nodeLabel('')  // disable built-in hover tooltip — we have React tooltips
-      .nodeColor(node => nodeColorFnRef.current(node))
+      .nodeLabel('') // disable built-in tooltip — React tooltips handle hover UI
+      .nodeColor((node) => nodeColorFnRef.current(node))
       .nodeVal('_size')
-      .nodeThreeObjectExtend(true)  // keep default sphere + add label sprite
-      .nodeThreeObject(node => {
-        const sprite = new SpriteText(node.label ?? node.id)
-        sprite.color = nodeColorFnRef.current(node)
-        sprite.textHeight = 3
-        sprite.fontFace = 'monospace'
-        sprite.strokeWidth = 0
-        sprite.backgroundColor = 'rgba(0,0,0,0)'
-        // Offset to the right of the sphere — sphere radius = cbrt(_size) * nodeRelSize(4)
-        const sphereR = Math.cbrt(node._size ?? 4) * 4
-        sprite.position.set(sphereR + LABEL_OFFSET, 0, 0)
-        node._sprite = sprite  // store ref so setFilter/focus can update color
+      .nodeThreeObjectExtend(true)
+      .nodeThreeObject((node) => {
+        const sprite = createNodeSprite(node, nodeColorFnRef.current(node))
+        node._sprite = sprite
         return sprite
       })
-      .linkColor(link => linkColorFnRef.current(link))
+      .linkColor((link) => linkColorFnRef.current(link))
       .linkWidth(0.5)
       .linkDirectionalArrowLength(0)
       .linkOpacity(1)
       .onNodeHover((node) => {
-        if (node) {
-          const attrs = nodeMapRef.current[node.id]
-          onEnterRef.current?.(node.id, attrs ?? node)
-        } else {
-          onLeaveRef.current?.()
-        }
+        if (node) cbRef.current.onEnterNode?.(node.id, nodeMapRef.current[node.id] ?? node)
+        else cbRef.current.onLeaveNode?.()
       })
-      .onNodeClick((node, event) => {
+      .onNodeClick((node) => {
         const now = Date.now()
-        const attrs = nodeMapRef.current[node.id]
-
-        // Double-click detection (two clicks within 300 ms)
-        if (now - lastClickTime.current < 300) {
-          onDblClickRef.current?.(node.id, attrs ?? node)
-          lastClickTime.current = 0
+        const attrs = nodeMapRef.current[node.id] ?? node
+        if (now - lastClickAt.current < DBL_CLICK_MS) {
+          cbRef.current.onDoubleClickNode?.(node.id, attrs)
+          lastClickAt.current = 0
           return
         }
-        lastClickTime.current = now
-
-        // Focus camera
-        const dist = 120
-        const distRatio = 1 + dist / Math.hypot(node.x ?? 1, node.y ?? 1, node.z ?? 1)
-        graphRef.current?.cameraPosition(
-          { x: (node.x ?? 0) * distRatio, y: (node.y ?? 0) * distRatio, z: (node.z ?? 0) * distRatio },
-          node,
-          600
-        )
-
-        onClickRef.current?.(node.id, attrs ?? node)
+        lastClickAt.current = now
+        panCameraTo(graphRef.current, node, CAMERA_DIST_CLICK, CAMERA_DUR_CLICK)
+        cbRef.current.onClickNode?.(node.id, attrs)
       })
 
     graphRef.current = g
     return g
-  }, [containerRef]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [containerRef])
 
-  // ── Public API ─────────────────────────────────────────────────────────────
+  // ── Public API ────────────────────────────────────────────────────────────
 
-  /**
-   * Load graph data. nodes = [{ key, attributes }], edges = [{ source, target }]
-   * rootKey is ignored for layout (force-directed), extraEdges optional.
-   */
   const load = useCallback((nodes, edges, rootKey, extraEdges) => {
-    // If the container isn't laid out yet (0×0), retry on next animation frame
     if (!ensureGraph()) {
+      // Container not laid out yet — retry next frame
       requestAnimationFrame(() => load(nodes, edges, rootKey, extraEdges))
       return
     }
-    const g = ensureGraph()
-    focusRef.current  = null
+    const g = graphRef.current
+    focusRef.current = null
     filterRef.current = null
 
-    // Build internal node objects
-    const gNodes = nodes.map(({ key, attributes }) => {
-      const node = {
-        id: key,
-        label: attributes.label ?? key,
-        _baseColor: attributes.color ?? nodeColor(attributes),
-        _size: attributes.size ?? nodeSize(attributes),
-        // Copy all attributes for tooltip / callbacks
-        ...attributes,
-      }
-      // Depth-pinned z-axis for FileMap
-      if (layoutMode === 'depthPinned' && attributes.depth != null) {
-        node.fz = -(attributes.depth * opts.zDepthScale)
-      }
-      return node
-    })
-
-    // Build flat node-attr map for callback lookups
-    const nodeMap = {}
-    for (const n of gNodes) nodeMap[n.id] = n
-    nodesRef.current  = gNodes
+    // Build node objects
+    const gNodes = nodes.map(({ key, attributes }) => ({
+      id: key,
+      label: attributes.label ?? key,
+      _baseColor: attributes.color ?? nodeColor(attributes),
+      _size: attributes.size ?? nodeSize(attributes),
+      ...attributes,
+    }))
+    const nodeMap = Object.fromEntries(gNodes.map((n) => [n.id, n]))
+    nodesRef.current = gNodes
     nodeMapRef.current = nodeMap
 
-    // Build link objects — filter to only edges where BOTH endpoints exist in gNodes.
-    // treeEdges from the server may reference files that were excluded from the node list
-    // (e.g. README.md filtered out because it's not a JS/TS file in RuntimeHeatmap).
-    // d3-force link force throws "node not found" if any link endpoint is missing.
-    const nodeIdSet = new Set(gNodes.map(n => n.id))
-    const allEdges = [...edges, ...(extraEdges ?? [])]
-    const gLinks = allEdges
-      .filter(({ source, target }) => nodeIdSet.has(source) && nodeIdSet.has(target))
-      .map(({ source, target }) => ({
-        source,
-        target,
-        _baseColor: `rgba(51,65,85,${EDGE_OPACITY})`,
-      }))
+    // Build link objects — drop edges whose endpoints aren't in the node set,
+    // otherwise d3-force throws "node not found".
+    const nodeIds = new Set(gNodes.map((n) => n.id))
+    const gLinks = [...edges, ...(extraEdges ?? [])]
+      .filter(({ source, target }) => nodeIds.has(source) && nodeIds.has(target))
+      .map(({ source, target }) => ({ source, target, _baseColor: TREE_LINK_COLOR }))
 
-    if (layoutMode === 'depthPinned') {
-      // Pin z per depth level before adding data so the force is active from the start
-      g.d3Force('z', forceZ(n => n.fz ?? 0).strength(opts.zStrength))
-      g.d3Force('radial', null)
-    } else if (layoutMode === 'orbital') {
-      // Solar-system layout: each depth level = concentric spherical shell
-      // Pre-position nodes on Fibonacci spheres so simulation starts spread out
-      const byDepth = {}
-      gNodes.forEach(n => {
-        const d = n.depth ?? 0
-        ;(byDepth[d] ??= []).push(n)
-      })
-      Object.entries(byDepth).forEach(([depthStr, depthNodes]) => {
-        const d = Number(depthStr)
-        const r = d * opts.orbitRadius
-        if (d === 0) {
-          depthNodes.forEach(n => { n.x = 0; n.y = 0; n.z = 0 })
-        } else {
-          const pts = fibonacciSphere(depthNodes.length, r)
-          depthNodes.forEach((n, i) => Object.assign(n, pts[i]))
-        }
-      })
-      // Radial force: pull each node to its orbital shell radius
-      g.d3Force('radial', forceRadial(
-        n => (n.depth ?? 0) * opts.orbitRadius, 0, 0, 0
-      ).strength(opts.radialStrength))
-      g.d3Force('z', null)
-    } else {
-      g.d3Force('z', null)
-      g.d3Force('radial', null)
-    }
-    // Tune charge, link distance and simulation speed
-    g.d3Force('charge')?.strength(opts.chargeStrength)
-    g.d3Force('link')?.distance(opts.linkDistance).strength(opts.linkStrength)
-    g.d3AlphaDecay(opts.alphaDecay)
-    g.d3VelocityDecay(opts.velocityDecay)
-
-    // Set data — simulation starts animating immediately
+    applyLayout(g, gNodes, layoutMode, opts)
     g.graphData({ nodes: gNodes, links: gLinks })
 
-    // Lazy loading: fire onReady after the first rendered frame so the graph
-    // is visible while the force simulation is still running.
-    // onEngineStop fires later when the simulation fully settles.
-    let _readyFired = false
-    requestAnimationFrame(() => {
-      if (_readyFired) return
-      _readyFired = true
-      onReadyRef.current?.(gNodes.length)
-    })
-
-    // Fallback: if rAF somehow never ran (hidden tab etc.)
-    const readyTimer = setTimeout(() => {
-      if (!_readyFired) {
-        _readyFired = true
-        onReadyRef.current?.(gNodes.length)
-      }
-    }, 2000)
+    // Lazy ready: fire as soon as we render the first frame, fall back to a timer.
+    const onReadyCb = () => cbRef.current.onReady?.(gNodes.length)
+    const ready = scheduleReady(onReadyCb)
 
     g.onEngineStop(() => {
-      clearTimeout(readyTimer)
-      if (!_readyFired) {
-        // Simulation settled before rAF — fire now
-        _readyFired = true
-        onReadyRef.current?.(gNodes.length)
-      }
-      // Pan camera to root node once simulation has settled and coordinates are final
-      if (rootKey) {
-        const root = nodeMapRef.current[rootKey]
-        if (root && root.x != null) {
-          const dist = 400
-          const distRatio = 1 + dist / Math.hypot(root.x || 1, root.y || 1, root.z || 1)
-          g.cameraPosition(
-            { x: (root.x || 0) * distRatio, y: (root.y || 0) * distRatio, z: (root.z || 0) * distRatio },
-            root,
-            800
-          )
-        }
-      }
+      clearTimeout(ready.timer)
+      ready.fire()
+      if (rootKey) panCameraTo(g, nodeMapRef.current[rootKey], CAMERA_DIST_ROOT, CAMERA_DUR_ROOT)
     })
-  }, [ensureGraph, layoutMode])
+  }, [ensureGraph, layoutMode]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const focusNode = useCallback((key) => {
-    const g = graphRef.current
-    if (!g) return
-    const node = nodeMapRef.current[key]
-    if (!node) return
-    const dist = 120
-    const distRatio = 1 + dist / Math.hypot(node.x ?? 1, node.y ?? 1, node.z ?? 1)
-    g.cameraPosition(
-      { x: (node.x ?? 0) * distRatio, y: (node.y ?? 0) * distRatio, z: (node.z ?? 0) * distRatio },
-      node,
-      600
-    )
+    panCameraTo(graphRef.current, nodeMapRef.current[key], CAMERA_DIST_CLICK, CAMERA_DUR_CLICK)
   }, [])
 
-  /** Sync sprite label colors to match the current node color (after focus/filter changes). */
   const syncSpriteColors = useCallback(() => {
     for (const node of nodesRef.current) {
       if (node._sprite) node._sprite.color = nodeColorFnRef.current(node)
@@ -433,61 +341,45 @@ export function useForceGraph3D(containerRef, {
   }, [syncSpriteColors])
 
   /**
-   * Update node attributes in-place (used by RuntimeHeatmap for SSE streaming).
-   * Uses g.refresh() instead of g.graphData() so the simulation is NOT reheated —
-   * calling graphData() every batch was restarting alpha=1 repeatedly and causing
-   * nodes to never settle (all converging to one point).
+   * Update node attributes in-place. Uses g.refresh() (visual-only) so the
+   * simulation isn't reheated on every streaming batch — graphData() would
+   * restart alpha=1 and prevent nodes from ever settling.
    */
   const patchNodes = useCallback((updates) => {
     const g = graphRef.current
     if (!g) return
     const { nodes } = g.graphData()
     for (const { key, attributes } of updates) {
-      const node = nodes.find(n => n.id === key)
+      const node = nodes.find((n) => n.id === key)
       if (!node) continue
       Object.assign(node, attributes)
       if (attributes.color) node._baseColor = attributes.color
       if (attributes.size)  node._size = attributes.size
-      // Update nodeMap too
       if (nodeMapRef.current[key]) Object.assign(nodeMapRef.current[key], attributes)
     }
-    // refresh() sets _flushObjects=true → rebuilds spheres (sizes) + sprites (colors)
-    // without touching the simulation or reheating alpha
     g.refresh()
   }, [])
 
-  /**
-   * Add edges after initial load (used by DependencyHeatmap for import edges).
-   */
   const addEdges = useCallback((edges) => {
     const g = graphRef.current
     if (!g) return
     const data = g.graphData()
-    const existingPairs = new Set(data.links.map(l => {
-      const s = typeof l.source === 'object' ? l.source.id : l.source
-      const t = typeof l.target === 'object' ? l.target.id : l.target
-      return `${s}->${t}`
-    }))
-    const nodeIds = new Set(data.nodes.map(n => n.id))
+    const nodeIds = new Set(data.nodes.map((n) => n.id))
+    const seen = new Set(data.links.map((l) => `${linkEnd(l.source)}->${linkEnd(l.target)}`))
     const newLinks = []
     for (const { source, target } of edges) {
       const key = `${source}->${target}`
-      if (!existingPairs.has(key) && nodeIds.has(source) && nodeIds.has(target)) {
-        newLinks.push({ source, target, _baseColor: `rgba(71,85,105,${EDGE_OPACITY})` })
-        existingPairs.add(key)
-      }
+      if (seen.has(key) || !nodeIds.has(source) || !nodeIds.has(target)) continue
+      newLinks.push({ source, target, _baseColor: EXTRA_LINK_COLOR })
+      seen.add(key)
     }
-    if (newLinks.length) {
-      g.graphData({ nodes: data.nodes, links: [...data.links, ...newLinks] })
-    }
+    if (newLinks.length) g.graphData({ nodes: data.nodes, links: [...data.links, ...newLinks] })
   }, [])
 
   const refreshTheme = useCallback(() => {
     const g = graphRef.current
     if (!g) return
-    const bg = getComputedStyle(document.documentElement)
-      .getPropertyValue('--cs-graph-bg').trim() || '#0f172a'
-    g.backgroundColor(bg)
+    g.backgroundColor(readBgColor())
     g.refresh()
     syncSpriteColors()
   }, [syncSpriteColors])
