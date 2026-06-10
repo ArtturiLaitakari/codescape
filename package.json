@@ -1,5 +1,5 @@
 {
-  "name": "sandbox",
+  "name": "codespace",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -8,7 +8,19 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "vite build && electron-builder"
+  },
+  "main": "electron/main.js",
+  "build": {
+    "appId": "com.sandbox.filemap",
+    "productName": "Codespace",
+    "mac": { "target": "dmg", "icon": "build/icon.icns" },
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "linux": { "target": "AppImage" },
+    "files": ["dist/**/*", "electron/**/*", "vite-plugin-filemap.js", "node_modules/**/*"],
+    "directories": { "buildResources": "public" }
   },
   "dependencies": {
     "3d-force-graph": "^1.80.0",
@@ -26,10 +38,14 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "concurrently": "^10.0.3",
+    "electron": "^42.3.3",
+    "electron-builder": "^26.15.2",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.6.0",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "wait-on": "^9.0.10"
   }
 }

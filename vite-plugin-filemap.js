@@ -623,6 +623,13 @@ async function handleRuntimeStream(req, res, rootDir) {
   }
 }
 
+// ── Shared exports (used by electron/api-server.js) ──────────────────────────
+export {
+  handleBrowse, handleFileMap, handleDepGraph,
+  handleRuntimeGraph, handleFileCode, handleRuntimeStream,
+  jsonHandler,
+}
+
 // ── Plugin entry point ───────────────────────────────────────────────────────
 export function fileMapPlugin(rootDir) {
   return {
