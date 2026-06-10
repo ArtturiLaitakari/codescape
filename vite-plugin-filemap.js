@@ -2,38 +2,23 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { Project } from 'ts-morph'
+import {
+  IGNORE_DIRS, SOURCE_EXTS,
+  DB_PACKAGES, API_PACKAGES,
+  BRANCH_KINDS, CC_BANDS, RUNTIME_WEIGHTS,
+  TS_PROJECT_OPTS as PROJECT_OPTS,
+} from './node.properties.js'
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-const IGNORE = new Set(['node_modules', '.git', 'dist', '.cache', 'coverage', '.vite'])
-const JS_TS_EXTS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']
+// ── Tuning constants (not language-specific) ──────────────────────────────────
 const CHUNK = 50          // files added to ts-morph per event-loop tick
 const STREAM_CHUNK = 20   // files analysed per SSE batch
 
-const DB_PACKAGES = new Set([
-  'pg', 'mysql', 'mysql2', 'sqlite3', 'better-sqlite3',
-  'knex', 'sequelize', 'mongoose',
-  '@prisma/client', 'typeorm', 'drizzle-orm',
-])
-const API_PACKAGES = new Set([
-  'axios', 'ky', 'node-fetch', 'got', 'superagent', 'undici',
-  'node:http', 'node:https', 'http', 'https',
-])
+// Aliases kept for backward compat with the rest of this file
+const IGNORE = IGNORE_DIRS
+const JS_TS_EXTS = SOURCE_EXTS
 
-const BRANCH_KINDS = [
-  'IfStatement', 'ConditionalExpression',
-  'ForStatement', 'ForInStatement', 'ForOfStatement',
-  'WhileStatement', 'DoStatement',
-  'CatchClause', 'CaseClause',
-]
-
-const CC_BANDS = { wayTooHigh: 20, high: 10, med: 4 }
-const RUNTIME_WEIGHTS = { db: 3, api: 2, cyclo: 0.5 }
-
-const PROJECT_OPTS = {
-  skipAddingFilesFromTsConfig: true,
-  skipFileDependencyResolution: true,
-  useInMemoryFileSystem: false,
-}
+// suppress unused-var lint for re-exported names used only via aliases above
+void DB_PACKAGES, void API_PACKAGES, void BRANCH_KINDS, void CC_BANDS, void RUNTIME_WEIGHTS
 
 // ── Generic utilities ────────────────────────────────────────────────────────
 const tick = () => new Promise((resolve) => setImmediate(resolve))

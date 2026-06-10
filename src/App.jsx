@@ -9,6 +9,10 @@ const LANG_FLAGS = { fi: '🇫🇮', en: '🇬🇧', sv: '🇸🇪' }
 const LANG_LABELS = { fi: 'Suomi', en: 'English', sv: 'Svenska' }
 const LANGS = ['fi', 'en', 'sv']
 
+const PROJECT_TYPES = [
+  { id: 'node', emoji: '🧩', label: 'Node.js' },
+]
+
 const VIEWS = [
   { id: 'filemap',  labelKey: 'tab_filemap' },
   { id: 'heatmap',  labelKey: 'tab_heatmap' },
@@ -23,6 +27,7 @@ export default function App() {
   const [theme, setTheme] = useState('dark')
   const [viewReady, setViewReady] = useState(false)
   const [is3D, setIs3D] = useState(false)
+  const [projectType, setProjectType] = useState('node')
 
   function handleViewChange(id) {
     setViewReady(false)
@@ -44,7 +49,7 @@ export default function App() {
 
   return (
     <div className="cs-app">
-      <TabNav views={VIEWS} active={activeView} onChange={handleViewChange} lang={lang} onLangChange={setLang} theme={theme} onThemeToggle={toggleTheme} is3D={is3D} on3DToggle={toggle3D} />
+      <TabNav views={VIEWS} active={activeView} onChange={handleViewChange} lang={lang} onLangChange={setLang} theme={theme} onThemeToggle={toggleTheme} is3D={is3D} on3DToggle={toggle3D} projectType={projectType} onProjectTypeChange={setProjectType} />
 
       {activeView === 'filemap'  && <FileMap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
       {activeView === 'heatmap'  && <DependencyHeatmap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
@@ -65,19 +70,22 @@ export default function App() {
   )
 }
 
-function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeToggle, is3D, on3DToggle }) {
+function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeToggle, is3D, on3DToggle, projectType, onProjectTypeChange }) {
   const [open, setOpen] = useState(false)
+  const [projectOpen, setProjectOpen] = useState(false)
   const popupRef = useRef(null)
+  const projectPopupRef = useRef(null)
 
   // Close popup when clicking outside
   useEffect(() => {
-    if (!open) return
+    if (!open && !projectOpen) return
     function handle(e) {
       if (popupRef.current && !popupRef.current.contains(e.target)) setOpen(false)
+      if (projectPopupRef.current && !projectPopupRef.current.contains(e.target)) setProjectOpen(false)
     }
     document.addEventListener('mousedown', handle)
     return () => document.removeEventListener('mousedown', handle)
-  }, [open])
+  }, [open, projectOpen])
 
   const isDark = theme === 'dark'
 
@@ -114,6 +122,33 @@ function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeTog
       >
         3D
       </button>
+
+      <div className="cs-tabnav__sep" />
+      <div ref={projectPopupRef} className="cs-langwrap">
+        <button
+          onClick={() => setProjectOpen((v) => !v)}
+          title={PROJECT_TYPES.find(p => p.id === projectType)?.label ?? projectType}
+          className={`cs-iconbtn cs-iconbtn--lang${projectOpen ? ' cs-iconbtn--open' : ''}`}
+        >
+          {PROJECT_TYPES.find(p => p.id === projectType)?.emoji ?? '⚙️'}
+        </button>
+
+        {projectOpen && (
+          <div className="cs-langmenu">
+            {PROJECT_TYPES.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => { onProjectTypeChange(p.id); setProjectOpen(false) }}
+                className={`cs-langmenu__item${p.id === projectType ? ' cs-langmenu__item--active' : ''}`}
+              >
+                <span className="cs-langmenu__flag">{p.emoji}</span>
+                {p.label}
+                {p.id === projectType && <span className="cs-langmenu__check">✓</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="cs-tabnav__sep" />
       <div ref={popupRef} className="cs-langwrap">
