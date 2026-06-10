@@ -3,7 +3,7 @@
  * ──────────────────
  * Project-language configuration for Node / JavaScript / TypeScript projects.
  *
- * To adapt Codespace for another language ecosystem, create a sibling file
+ * To adapt Codescape for another language ecosystem, create a sibling file
  * (e.g. python.properties.js) exporting the same shape and swap the import
  * in vite-plugin-filemap.js.
  */

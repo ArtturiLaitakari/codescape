@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
-   Codespace — central stylesheet (structure + layout).
+   Codescape — central stylesheet (structure + layout).
 
    All component chrome (headers, tooltips, legends, tabs, inputs, buttons,
    overlays) lives here as semantic CSS classes. Components reference these via

@@ -1,5 +1,5 @@
 {
-  "name": "codespace",
+  "name": "codescape",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -15,7 +15,7 @@
   "main": "electron/main.js",
   "build": {
     "appId": "com.sandbox.filemap",
-    "productName": "Codespace",
+    "productName": "Codescape",
     "mac": { "target": "dmg", "icon": "build/icon.icns" },
     "win": { "target": "nsis", "icon": "build/icon.ico" },
     "linux": { "target": "AppImage" },

@@ -304,7 +304,7 @@ export default function FileCodeView({ filePath, activeRoot, onClose, lang = 'en
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
       <div className="cs-overlay__header">
-        <span className="cs-overlay__brand">Codespace</span>
+        <span className="cs-overlay__brand">Codescape</span>
         <span className="cs-overlay__sub">{t('subtitle_filecode', lang)}</span>
         <span className="cs-overlay__name">{fileName}</span>
         {status === 'ready' && data && (

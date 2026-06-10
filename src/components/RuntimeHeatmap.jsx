@@ -176,7 +176,7 @@ function RuntimeHeader({ status, scanProgress, nodeCount, inputValue, activeRoot
   return (
     <div className="cs-header">
       <div className="cs-header__top">
-        <span className="cs-title">Codespace</span>
+        <span className="cs-title">Codescape</span>
         <span className="cs-subtitle">{t('subtitle_runtime', lang)}</span>
         <span className={`cs-status${status.startsWith('error') ? ' cs-status--error' : ''}`}>
           {statusText}

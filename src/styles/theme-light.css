@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────────────────────
-   Codespace theme — LIGHT.
+   Codescape theme — LIGHT.
 
    Overrides the --cs-* theme tokens when <html> carries the "cs-light" class
    (toggled by the theme switch in App.jsx). Falls back to theme-dark.css

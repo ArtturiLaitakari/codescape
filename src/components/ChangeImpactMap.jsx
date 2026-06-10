@@ -157,7 +157,7 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
   return (
     <div className="cs-header">
       <div className="cs-header__top">
-        <span className="cs-title">Codespace</span>
+        <span className="cs-title">Codescape</span>
         <span className="cs-subtitle">{t('subtitle_impact', lang)}</span>
         {statusMsg ? (
           <span className="cs-status cs-status--warn">{statusMsg}</span>

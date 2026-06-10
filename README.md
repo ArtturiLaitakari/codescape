@@ -1,4 +1,4 @@
-# Codespace
+# Codescape
 
 An interactive codebase visualizer. Point it at any JS/TS project and explore its structure and dependencies as a live graph.
 
