@@ -16,8 +16,8 @@
   "build": {
     "appId": "com.sandbox.filemap",
     "productName": "Codespace",
-    "mac": { "target": "dmg" },
-    "win": { "target": "nsis" },
+    "mac": { "target": "dmg", "icon": "build/icon.icns" },
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
     "linux": { "target": "AppImage" },
     "files": ["dist/**/*", "electron/**/*", "vite-plugin-filemap.js", "node_modules/**/*"],
     "directories": { "buildResources": "public" }
