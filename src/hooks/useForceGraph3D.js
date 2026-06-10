@@ -190,7 +190,7 @@ function scheduleReady(cb) {
  * Public API is identical to useSigmaGraph so views can switch by import.
  */
 export function useForceGraph3D(containerRef, {
-  onEnterNode, onLeaveNode, onReady, getImpactZone,
+  onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus,
   onClickNode, onDoubleClickNode,
   layoutMode = 'free', layoutOptions = {},
 } = {}) {
@@ -206,7 +206,7 @@ export function useForceGraph3D(containerRef, {
 
   // Always-current callback access (avoids re-creating the graph instance)
   const cbRef = useRef({})
-  cbRef.current = { onEnterNode, onLeaveNode, onClickNode, onDoubleClickNode, onReady, getImpactZone }
+  cbRef.current = { onEnterNode, onLeaveNode, onClickNode, onDoubleClickNode, onReady, getImpactZone, onClearFocus }
 
   // Color closures — refs so the graph always uses the latest focus/filter state
   const nodeColorFnRef = useRef(null)
@@ -271,6 +271,22 @@ export function useForceGraph3D(containerRef, {
         }
         lastClickAt.current = now
         panCameraTo(graphRef.current, node, CAMERA_DIST_CLICK, CAMERA_DUR_CLICK)
+
+        // Impact zone toggle (ChangeImpactMap in 3D mode)
+        if (cbRef.current.getImpactZone) {
+          if (focusRef.current?.node === node.id) {
+            focusRef.current = null
+            cbRef.current.onClearFocus?.()
+          } else {
+            const depths = cbRef.current.getImpactZone(node.id)
+            focusRef.current = { node: node.id, neighbors: new Set(depths.keys()), impactZone: depths }
+          }
+          g.refresh()
+          for (const n of nodesRef.current) {
+            if (n._sprite) n._sprite.color = nodeColorFnRef.current(n)
+          }
+        }
+
         cbRef.current.onClickNode?.(node.id, attrs)
       })
 

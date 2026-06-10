@@ -1,62 +1,43 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
-import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useForceGraph3D.js'
+import { useEffect, useRef, useCallback } from 'react'
+import { useGraphView, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useGraphView.js'
 import { nodeColor, LEGEND } from '../lib/graph-colors.js'
 import { t, tf } from '../lib/i18n.js'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import FileCodeView from './FileCodeView.jsx'
+import { API_BASE } from '../lib/api-base.js'
 
 export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, onViewReady }) {
   const containerRef = useRef(null)
-  const [status, setStatus] = useState('loading')
-  const [hovered, setHovered]   = useState(null)
-  const [pinned, setPinned]     = useState(null)
-  const [nodeCount, setNodeCount] = useState(0)
-  const [inputValue, setInputValue] = useState(sharedRoot ?? '')
-  const [activeRoot, setActiveRoot] = useState(null)
-  const [selectedFile, setSelectedFile] = useState(null)
 
-  const onEnterNode = useCallback((key, attrs) => setHovered({ key, ...attrs }), [])
-  const onLeaveNode = useCallback(() => setHovered(null), [])
-  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready'); onViewReady?.() }, [onViewReady])
-
-  const searchResetRef = useRef(null)
-  const activeRootRef = useRef(activeRoot)
-  useEffect(() => { activeRootRef.current = activeRoot }, [activeRoot])
-
-  const onClickNode = useCallback((key, attrs) => {
-    searchResetRef.current?.()
-    setPinned(prev => prev?.key === key ? null : { key, ...attrs })
-  }, [])
-
-  const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx'])
-  const onDoubleClickNode = useCallback((key, attrs) => {
-    if (attrs?.kind === 'file' && CODE_EXTS.has(attrs?.ext) && activeRootRef.current) {
-      const fullPath = activeRootRef.current.replace(/\/$/, '') + '/' + key
-      setSelectedFile(fullPath)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const sigmaGraph = useSigmaGraph(is3D ? null : containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
-  const forceGraph = useForceGraph3D(is3D ? containerRef : null, {
-    onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
-    layoutMode: 'orbital',
-    layoutOptions: {
-      ...DEFAULT_LAYOUT_OPTIONS,
-      orbitRadius:    150,  // shell radius per directory depth level
-      radialStrength: 0.9,  // how firmly nodes are pulled to their shell
-      chargeStrength: -60,  // node repulsion within each shell
-      linkDistance:   40,   // parent–child edge length
-      linkStrength:   0.2,  // soft spring so orbital force dominates
+  const {
+    status, setStatus,
+    hovered, setHovered,
+    pinned,
+    nodeCount,
+    inputValue, setInputValue,
+    activeRoot, setActiveRoot,
+    selectedFile, setSelectedFile,
+    searchResetRef,
+    load, getNodes, setFilter,
+  } = useGraphView(containerRef, {
+    is3D, theme, sharedRoot, onViewReady,
+    forceOptions: {
+      layoutMode: 'orbital',
+      layoutOptions: {
+        ...DEFAULT_LAYOUT_OPTIONS,
+        orbitRadius: 150, radialStrength: 0.9, chargeStrength: -60,
+        linkDistance: 40, linkStrength: 0.2,
+      },
     },
   })
-  const { load, getNodes, setFilter, refreshTheme } = is3D ? forceGraph : sigmaGraph
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
     setHovered(null)
     let cancelled = false
-    const url = targetPath ? `/api/filemap?path=${encodeURIComponent(targetPath)}` : '/api/filemap'
+    const url = targetPath
+      ? `${API_BASE}/api/filemap?path=${encodeURIComponent(targetPath)}`
+      : `${API_BASE}/api/filemap`
     fetch(url)
       .then((r) => r.json())
       .then((body) => {
@@ -69,15 +50,13 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, 
       })
       .catch((e) => { if (!cancelled) setStatus(`error: ${e.message}`) })
     return () => { cancelled = true }
-  }, [load, onRootChange])
+  }, [load, onRootChange]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const cleanup = loadGraph(sharedRoot ?? '')
     return cleanup
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // only on mount — sharedRoot is the initial value, not a dependency
-
-  useEffect(() => { refreshTheme() }, [theme, refreshTheme])
 
   function handleSubmit(e) {
     e.preventDefault()

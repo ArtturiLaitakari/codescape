@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
-import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useForceGraph3D.js'
+import { useEffect, useRef, useState } from 'react'
+import { useGraphView, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useGraphView.js'
 import { useRuntimeStream } from '../hooks/useRuntimeStream.js'
 import {
   RUNTIME_LEGEND_STOPS,
@@ -40,47 +39,30 @@ function filterBand(fileList, bandId) {
 export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', theme, is3D, onViewReady }) {
   const containerRef   = useRef(null)
   const nodeAttrsRef   = useRef({})
-  const searchResetRef = useRef(null)
-  const activeRootRef  = useRef(null)
   const cleanupRef     = useRef(null)
 
-  const [status,       setStatus]       = useState('loading')
-  const [hovered,      setHovered]      = useState(null)
-  const [pinned,       setPinned]       = useState(null)
-  const [nodeCount,    setNodeCount]    = useState(0)
-  const [inputValue,   setInputValue]   = useState(sharedRoot ?? '')
-  const [activeRoot,   setActiveRoot]   = useState(null)
   const [fileList,     setFileList]     = useState([])
   const [selectedBand, setSelectedBand] = useState(null)
-  const [selectedFile, setSelectedFile] = useState(null)
   const [scanProgress, setScanProgress] = useState(null)
 
-  useEffect(() => { activeRootRef.current = activeRoot }, [activeRoot])
-
-  // ── Graph hooks ───────────────────────────────────────────────────────────
-
-  const onEnterNode = useCallback((key, attrs) => setHovered({ key, ...attrs }), [])
-  const onLeaveNode = useCallback(() => setHovered(null), [])
-  const onReady     = useCallback((count) => { setNodeCount(count); onViewReady?.() }, [onViewReady])
-
-  const onClickNode = useCallback((key, attrs) => {
-    searchResetRef.current?.()
-    setPinned(prev => prev?.key === key ? null : { key, ...attrs })
-  }, [])
-
-  const onDoubleClickNode = useCallback((key, attrs) => {
-    if (attrs?.kind === 'file' && CODE_EXTS.has(attrs?.ext) && activeRootRef.current) {
-      setSelectedFile(activeRootRef.current.replace(/\/$/, '') + '/' + key)
-    }
-  }, [])
-
-  const sigmaGraph = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode })
-  const forceGraph = useForceGraph3D(containerRef, {
-    onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
-    layoutMode: 'free',
-    layoutOptions: { ...DEFAULT_LAYOUT_OPTIONS, chargeStrength: -120, linkDistance: 60, linkStrength: 0.3 },
+  const {
+    status, setStatus,
+    hovered, setHovered,
+    pinned, setPinned,
+    nodeCount,
+    inputValue, setInputValue,
+    activeRoot, setActiveRoot,
+    selectedFile, setSelectedFile,
+    searchResetRef,
+    load, getNodes, setFilter, patchNodes, addEdges, focusNode,
+  } = useGraphView(containerRef, {
+    is3D, theme, sharedRoot, onViewReady,
+    setStatusOnReady: false,  // SSE done handler sets status='ready'
+    forceOptions: {
+      layoutMode: 'free',
+      layoutOptions: { ...DEFAULT_LAYOUT_OPTIONS, chargeStrength: -120, linkDistance: 60, linkStrength: 0.3 },
+    },
   })
-  const { load, getNodes, setFilter, patchNodes, addEdges, focusNode, refreshTheme } = is3D ? forceGraph : sigmaGraph
 
   // ── SSE streaming ─────────────────────────────────────────────────────────
 
@@ -102,8 +84,6 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     return cleanup
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  useEffect(() => { refreshTheme() }, [theme, refreshTheme])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 

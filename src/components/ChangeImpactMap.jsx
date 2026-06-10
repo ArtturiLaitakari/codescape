@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
+import { useEffect, useRef, useCallback } from 'react'
+import { useGraphView } from '../hooks/useGraphView.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { t, tf, impactStatusMsg } from '../lib/i18n.js'
 import { buildAdjacency } from '../lib/impact-utils.js'
@@ -8,56 +8,48 @@ import { ImportTooltip } from './ImportTooltip.jsx'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import { ImpactDepthLegend } from './ImpactDepthLegend.jsx'
 import FileCodeView from './FileCodeView.jsx'
+import { API_BASE } from '../lib/api-base.js'
 
-export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi', theme, onViewReady }) {
-  const containerRef = useRef(null)
-  const reverseAdjRef = useRef({})
+export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, onViewReady }) {
+  const containerRef     = useRef(null)
+  const reverseAdjRef    = useRef({})
   const forwardImportRef = useRef({})
-  const forwardTreeRef = useRef({})
-  const nodeAttrsRef = useRef({})
-  const [status, setStatus] = useState('loading')
-  const [hovered, setHovered]   = useState(null)
-  const [pinned, setPinned]     = useState(null)
-  const [nodeCount, setNodeCount] = useState(0)
-  const [inputValue, setInputValue] = useState(sharedRoot ?? '')
-  const [activeRoot, setActiveRoot] = useState(null)
-  const [selectedFile, setSelectedFile] = useState(null)
+  const forwardTreeRef   = useRef({})
+  const nodeAttrsRef     = useRef({})
 
   const { selectedImpact, selectMode, getImpactZone, onClearFocus } =
     useImpactZone(nodeAttrsRef, forwardTreeRef, reverseAdjRef)
 
-  const onEnterNode = useCallback((key, attrs) => {
-    const importers = [...(reverseAdjRef.current[key] ?? [])].sort()
-    const imports = [...(forwardImportRef.current[key] ?? [])].sort()
-    setHovered({ key, ...attrs, importers, imports })
-  }, [])
-  const onLeaveNode = useCallback(() => setHovered(null), [])
-  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready'); onViewReady?.() }, [onViewReady])
+  const buildHovered = useCallback((key, attrs) => ({
+    key, ...attrs,
+    importers: [...(reverseAdjRef.current[key] ?? [])].sort(),
+    imports:   [...(forwardImportRef.current[key] ?? [])].sort(),
+  }), [])
 
-  const searchResetRef = useRef(null)
-  const activeRootRef = useRef(activeRoot)
-  useEffect(() => { activeRootRef.current = activeRoot }, [activeRoot])
-
-  const onClickNode = useCallback((key, attrs) => {
-    searchResetRef.current?.()
-    setPinned(prev => prev?.key === key ? null : { key, ...attrs })
-  }, [])
-
-  const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx'])
-  const onDoubleClickNode = useCallback((key, attrs) => {
-    if (attrs?.kind === 'file' && CODE_EXTS.has(attrs?.ext) && activeRootRef.current) {
-      setSelectedFile(activeRootRef.current.replace(/\/$/, '') + '/' + key)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const { load, getNodes, setFilter, refreshTheme } = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode })
+  const {
+    status, setStatus,
+    hovered, setHovered,
+    pinned,
+    nodeCount,
+    inputValue, setInputValue,
+    activeRoot, setActiveRoot,
+    selectedFile, setSelectedFile,
+    searchResetRef,
+    load, getNodes, setFilter,
+  } = useGraphView(containerRef, {
+    is3D, theme, sharedRoot, onViewReady,
+    buildHovered,
+    sigmaOptions: { getImpactZone, onClearFocus },
+  })
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
     setHovered(null)
     onClearFocus()
     let cancelled = false
-    const url = targetPath ? `/api/depgraph?path=${encodeURIComponent(targetPath)}` : '/api/depgraph'
+    const url = targetPath
+      ? `${API_BASE}/api/depgraph?path=${encodeURIComponent(targetPath)}`
+      : `${API_BASE}/api/depgraph`
     fetch(url)
       .then((r) => r.json())
       .then((body) => {
@@ -94,15 +86,13 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
       })
       .catch((e) => { if (!cancelled) setStatus(`error: ${e.message}`) })
     return () => { cancelled = true }
-  }, [load, onRootChange, onClearFocus])
+  }, [load, onRootChange, onClearFocus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const cleanup = loadGraph(sharedRoot ?? '')
     return cleanup
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // only on mount — sharedRoot is the initial value, not a live dependency
-
-  useEffect(() => { refreshTheme() }, [theme, refreshTheme])
+  }, []) // only on mount — sharedRoot is not a live dependency
 
   function handleSubmit(e) {
     e.preventDefault()

@@ -1,6 +1,5 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useSigmaGraph } from '../hooks/useSigmaGraph.js'
-import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useForceGraph3D.js'
+import { useEffect, useRef, useCallback } from 'react'
+import { useGraphView, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useGraphView.js'
 import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { fanInColor, fanInSize, HEATMAP_LEGEND_STOPS } from '../lib/heatmap-colors.js'
 import { t, tf, impactStatusMsg } from '../lib/i18n.js'
@@ -10,69 +9,56 @@ import { ImportTooltip } from './ImportTooltip.jsx'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import { ImpactDepthLegend } from './ImpactDepthLegend.jsx'
 import FileCodeView from './FileCodeView.jsx'
+import { API_BASE } from '../lib/api-base.js'
 
 export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, onViewReady }) {
-  const containerRef = useRef(null)
-  const reverseAdjRef = useRef({})
+  const containerRef     = useRef(null)
+  const reverseAdjRef    = useRef({})
   const forwardImportRef = useRef({})
-  const forwardTreeRef = useRef({})
-  const nodeAttrsRef = useRef({})
-  const [status, setStatus] = useState('loading')
-  const [hovered, setHovered]   = useState(null)
-  const [pinned, setPinned]     = useState(null)
-  const [nodeCount, setNodeCount] = useState(0)
-  const [inputValue, setInputValue] = useState(sharedRoot ?? '')
-  const [activeRoot, setActiveRoot] = useState(null)
-  const [selectedFile, setSelectedFile] = useState(null)
+  const forwardTreeRef   = useRef({})
+  const nodeAttrsRef     = useRef({})
 
   const { selectedImpact, selectMode, getImpactZone, onClearFocus } =
     useImpactZone(nodeAttrsRef, forwardTreeRef, reverseAdjRef)
 
-  const onEnterNode = useCallback((key, attrs) => {
-    const importers = [...(reverseAdjRef.current[key] ?? [])].sort()
-    const imports = [...(forwardImportRef.current[key] ?? [])].sort()
-    setHovered({ key, ...attrs, importers, imports })
-  }, [])
-  const onLeaveNode = useCallback(() => setHovered(null), [])
-  const onReady = useCallback((count) => { setNodeCount(count); setStatus('ready'); onViewReady?.() }, [onViewReady])
+  const buildHovered = useCallback((key, attrs) => ({
+    key, ...attrs,
+    importers: [...(reverseAdjRef.current[key] ?? [])].sort(),
+    imports:   [...(forwardImportRef.current[key] ?? [])].sort(),
+  }), [])
 
-  const searchResetRef = useRef(null)
-  const activeRootRef = useRef(activeRoot)
-  useEffect(() => { activeRootRef.current = activeRoot }, [activeRoot])
-
-  const onClickNode = useCallback((key, attrs) => {
-    searchResetRef.current?.()
-    setPinned(prev => prev?.key === key ? null : { key, ...attrs })
-  }, [])
-
-  const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx'])
-  const onDoubleClickNode = useCallback((key, attrs) => {
-    if (attrs?.kind === 'file' && CODE_EXTS.has(attrs?.ext) && activeRootRef.current) {
-      setSelectedFile(activeRootRef.current.replace(/\/$/, '') + '/' + key)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const sigmaGraph = useSigmaGraph(containerRef, { onEnterNode, onLeaveNode, onReady, getImpactZone, onClearFocus, onClickNode, onDoubleClickNode })
-  const forceGraph = useForceGraph3D(containerRef, {
-    onEnterNode, onLeaveNode, onReady, onClickNode, onDoubleClickNode,
-    layoutMode: 'orbital',
-    layoutOptions: {
-      ...DEFAULT_LAYOUT_OPTIONS,
-      orbitRadius:    140,  // shell radius per directory depth level
-      radialStrength: 0.8,  // import edges pull nodes off their shell, so softer
-      chargeStrength: -80,
-      linkDistance:   50,
-      linkStrength:   0.15,
+  const {
+    status, setStatus,
+    hovered, setHovered,
+    pinned,
+    nodeCount,
+    inputValue, setInputValue,
+    activeRoot, setActiveRoot,
+    selectedFile, setSelectedFile,
+    searchResetRef,
+    load, getNodes, setFilter,
+  } = useGraphView(containerRef, {
+    is3D, theme, sharedRoot, onViewReady,
+    buildHovered,
+    sigmaOptions: { getImpactZone, onClearFocus },
+    forceOptions: {
+      layoutMode: 'orbital',
+      layoutOptions: {
+        ...DEFAULT_LAYOUT_OPTIONS,
+        orbitRadius: 140, radialStrength: 0.8, chargeStrength: -80,
+        linkDistance: 50, linkStrength: 0.15,
+      },
     },
   })
-  const { load, getNodes, setFilter, refreshTheme } = is3D ? forceGraph : sigmaGraph
 
   const loadGraph = useCallback((targetPath) => {
     setStatus('loading')
     setHovered(null)
     onClearFocus()
     let cancelled = false
-    const url = targetPath ? `/api/depgraph?path=${encodeURIComponent(targetPath)}` : '/api/depgraph'
+    const url = targetPath
+      ? `${API_BASE}/api/depgraph?path=${encodeURIComponent(targetPath)}`
+      : `${API_BASE}/api/depgraph`
     fetch(url)
       .then((r) => r.json())
       .then((body) => {
@@ -117,15 +103,13 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
       })
       .catch((e) => { if (!cancelled) setStatus(`error: ${e.message}`) })
     return () => { cancelled = true }
-  }, [load, onRootChange, onClearFocus])
+  }, [load, onRootChange, onClearFocus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const cleanup = loadGraph(sharedRoot ?? '')
     return cleanup
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []) // only on mount — sharedRoot is the initial value, not a dependency
-
-  useEffect(() => { refreshTheme() }, [theme, refreshTheme])
 
   function handleSubmit(e) {
     e.preventDefault()
