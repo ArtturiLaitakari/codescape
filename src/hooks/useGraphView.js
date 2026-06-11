@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from './useSigmaGraph.js'
 import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from './useForceGraph3D.js'
+import { API_BASE } from '../lib/api-base.js'
 
 // Extensions that can be opened in FileCodeView (JS/TS + .NET + others)
 const CODE_EXTS = new Set([
@@ -53,6 +54,23 @@ export function useGraphView(containerRef, {
   const [excludedDirs, setExcludedDirs] = useState([])  // string[] — extra dirs to ignore
 
   useEffect(() => { activeRootRef.current = activeRoot }, [activeRoot])
+
+  // ── Hover prefetch ────────────────────────────────────────────────────────
+  // When the user hovers a file node for >400 ms, silently warm the filecode
+  // cache so double-click opens instantly.
+  const prefetchTimerRef = useRef(null)
+  useEffect(() => {
+    clearTimeout(prefetchTimerRef.current)
+    const h = hovered
+    if (!h || h.kind !== 'file' || !activeRootRef.current) return
+    const ext = h.ext ?? ''
+    if (!CODE_EXTS.has(ext) && !ext) return
+    prefetchTimerRef.current = setTimeout(() => {
+      const absPath = activeRootRef.current.replace(/\/$/, '') + '/' + h.key
+      fetch(`${API_BASE}/api/filecode?path=${encodeURIComponent(absPath)}`).catch(() => {})
+    }, 400)
+    return () => clearTimeout(prefetchTimerRef.current)
+  }, [hovered])
 
   const onEnterNode = useCallback((key, attrs) => {
     setHovered(buildHovered ? buildHovered(key, attrs) : { key, ...attrs })

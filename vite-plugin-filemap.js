@@ -496,11 +496,13 @@ async function buildFileCode(filePath) {
   const cached = fileCodeCacheGet(filePath)
   if (cached) return cached
 
+  await tick()  // yield before heavy synchronous parse
   const project = createProject()
   try { project.addSourceFileAtPath(filePath) }
   catch (e) { throw new Error(`Cannot parse file: ${e.message}`, { cause: e }) }
   const sf = project.getSourceFile(filePath)
   if (!sf) throw new Error('File not found in project after adding')
+  await tick()  // yield after parse, before analysis
   const result = detectFileFunctions(sf)
   fileCodeCacheSet(filePath, result)
   return result
