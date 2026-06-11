@@ -11,7 +11,7 @@ import { ImpactDepthLegend } from './ImpactDepthLegend.jsx'
 import FileCodeView from './FileCodeView.jsx'
 import { API_BASE } from '../lib/api-base.js'
 
-export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, onViewReady }) {
+export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, projectType = 'node', onViewReady }) {
   const containerRef     = useRef(null)
   const reverseAdjRef    = useRef({})
   const forwardImportRef = useRef({})
@@ -57,8 +57,8 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
     onClearFocus()
     let cancelled = false
     const url = targetPath
-      ? `${API_BASE}/api/depgraph?path=${encodeURIComponent(targetPath)}`
-      : `${API_BASE}/api/depgraph`
+      ? `${API_BASE}/api/depgraph?path=${encodeURIComponent(targetPath)}&type=${projectType}`
+      : `${API_BASE}/api/depgraph?type=${projectType}`
     fetch(url)
       .then((r) => r.json())
       .then((body) => {

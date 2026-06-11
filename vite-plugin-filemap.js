@@ -8,6 +8,10 @@ import {
   BRANCH_KINDS, CC_BANDS, RUNTIME_WEIGHTS,
   TS_PROJECT_OPTS as PROJECT_OPTS,
 } from './node.properties.js'
+import {
+  IGNORE_DIRS as IGNORE_DIRS_DOTNET,
+  SOURCE_EXTS as SOURCE_EXTS_DOTNET,
+} from './dotnet.properties.js'
 
 // ── Tuning constants (not language-specific) ──────────────────────────────────
 const CHUNK = 50          // files added to ts-morph per event-loop tick
@@ -16,6 +20,12 @@ const STREAM_CHUNK = 20   // files analysed per SSE batch
 // Aliases kept for backward compat with the rest of this file
 const IGNORE = IGNORE_DIRS
 const JS_TS_EXTS = SOURCE_EXTS
+
+const PROPS = {
+  node:   { ignoreDirs: IGNORE_DIRS,        sourceExts: SOURCE_EXTS },
+  dotnet: { ignoreDirs: IGNORE_DIRS_DOTNET, sourceExts: SOURCE_EXTS_DOTNET },
+}
+function getProps(type) { return PROPS[type] ?? PROPS.node }
 
 // suppress unused-var lint for re-exported names used only via aliases above
 void DB_PACKAGES, void API_PACKAGES, void BRANCH_KINDS, void CC_BANDS, void RUNTIME_WEIGHTS
@@ -28,17 +38,18 @@ const runtimeScore = ({ dbCallCount = 0, apiCallCount = 0, cyclomatic = 1 }) =>
   dbCallCount * RUNTIME_WEIGHTS.db + apiCallCount * RUNTIME_WEIGHTS.api + cyclomatic * RUNTIME_WEIGHTS.cyclo
 
 // ── Filesystem walk ──────────────────────────────────────────────────────────
-function readEntries(dir) {
-  try { return fs.readdirSync(dir, { withFileTypes: true }).filter(e => !isHidden(e.name)) }
+function readEntries(dir, ignoreDirs = IGNORE) {
+  const hidden = (name) => name.startsWith('.') || ignoreDirs.has(name)
+  try { return fs.readdirSync(dir, { withFileTypes: true }).filter(e => !hidden(e.name)) }
   catch { return [] }
 }
 
-function isDirEmpty(dirPath) {
-  return readEntries(dirPath).length === 0
+function isDirEmpty(dirPath, ignoreDirs) {
+  return readEntries(dirPath, ignoreDirs).length === 0
 }
 
 /** Build directory tree (nodes + parent→child edges). Iterative. */
-function walkDir(rootDir) {
+function walkDir(rootDir, { ignoreDirs = IGNORE } = {}) {
   const nodes = [{
     key: '__root__',
     attributes: { label: path.basename(rootDir), kind: 'root', ext: null, depth: 0 },
@@ -48,7 +59,7 @@ function walkDir(rootDir) {
 
   while (stack.length) {
     const current = stack.pop()
-    for (const entry of readEntries(current)) {
+    for (const entry of readEntries(current, ignoreDirs)) {
       const fullPath = path.join(current, entry.name)
       const rel = path.relative(rootDir, fullPath)
       const parentRel = path.relative(rootDir, current)
@@ -59,7 +70,7 @@ function walkDir(rootDir) {
         key: rel,
         attributes: {
           label: entry.name,
-          kind: isDir ? (isDirEmpty(fullPath) ? 'dir-empty' : 'dir') : 'file',
+          kind: isDir ? (isDirEmpty(fullPath, ignoreDirs) ? 'dir-empty' : 'dir') : 'file',
           ext: isDir ? null : path.extname(entry.name).slice(1) || 'other',
           depth: rel.split(path.sep).length,
         },
@@ -71,16 +82,16 @@ function walkDir(rootDir) {
   return { nodes, edges }
 }
 
-/** Iteratively collect all JS/TS file paths under rootDir. */
-function collectJsTsFiles(rootDir) {
+/** Iteratively collect all source file paths under rootDir. */
+function collectJsTsFiles(rootDir, { ignoreDirs = IGNORE, sourceExts = JS_TS_EXTS } = {}) {
   const files = []
   const stack = [rootDir]
   while (stack.length) {
     const dir = stack.pop()
-    for (const e of readEntries(dir)) {
+    for (const e of readEntries(dir, ignoreDirs)) {
       const full = path.join(dir, e.name)
       if (e.isDirectory()) stack.push(full)
-      else if (JS_TS_EXTS.includes(path.extname(e.name))) files.push(full)
+      else if (sourceExts.includes(path.extname(e.name))) files.push(full)
     }
   }
   return files
@@ -347,8 +358,8 @@ function resolveImport(fromDir, spec) {
 }
 
 // ── Dependency graph ─────────────────────────────────────────────────────────
-async function buildDepGraph(rootDir) {
-  const allFiles = collectJsTsFiles(rootDir)
+async function buildDepGraph(rootDir, props = {}) {
+  const allFiles = collectJsTsFiles(rootDir, props)
   const project = createProject()
   await loadProjectChunked(project, allFiles)
 
@@ -417,8 +428,8 @@ function computeRuntimeEdges(runtimeData) {
   return { runtimeEdges, dbCallerCount, apiCallerCount }
 }
 
-async function buildRuntimeGraph(rootDir) {
-  const allFiles = collectJsTsFiles(rootDir)
+async function buildRuntimeGraph(rootDir, props = {}) {
+  const allFiles = collectJsTsFiles(rootDir, props)
   const project = createProject()
   await loadProjectChunked(project, allFiles)
 
@@ -487,6 +498,10 @@ function getQueryPath(req) {
   return new URL(req.url, 'http://localhost').searchParams.get('path')
 }
 
+function getQueryType(req) {
+  return new URL(req.url, 'http://localhost').searchParams.get('type') ?? 'node'
+}
+
 /** Validate a user-supplied path; resolves to absolute or returns { error }. */
 function validatePath(requested, rootDir) {
   if (!requested) return { target: rootDir }
@@ -530,19 +545,22 @@ function handleBrowse(req, res, rootDir) {
 function handleFileMap(req, res, rootDir) {
   const { target, error } = validatePath(getQueryPath(req), rootDir)
   if (error) return sendError(res, 400, error)
-  sendJson(res, { ...walkDir(target), root: target })
+  const props = getProps(getQueryType(req))
+  sendJson(res, { ...walkDir(target, props), root: target })
 }
 
 async function handleDepGraph(req, res, rootDir) {
   const { target, error } = validatePath(getQueryPath(req), rootDir)
   if (error) return sendError(res, 400, error)
-  sendJson(res, { ...(await buildDepGraph(target)), root: target })
+  const props = getProps(getQueryType(req))
+  sendJson(res, { ...(await buildDepGraph(target, props)), root: target })
 }
 
 async function handleRuntimeGraph(req, res, rootDir) {
   const { target, error } = validatePath(getQueryPath(req), rootDir)
   if (error) return sendError(res, 400, error)
-  sendJson(res, { ...(await buildRuntimeGraph(target)), root: target })
+  const props = getProps(getQueryType(req))
+  sendJson(res, { ...(await buildRuntimeGraph(target, props)), root: target })
 }
 
 async function handleFileCode(req, res) {
@@ -562,11 +580,12 @@ async function handleRuntimeStream(req, res, rootDir) {
     res.end()
     return
   }
+  const props = getProps(getQueryType(req))
 
   try {
     // 1. Tree + placeholder virtual nodes — sent immediately
-    const { nodes: treeNodes, edges: treeEdges } = walkDir(target)
-    const allFiles = collectJsTsFiles(target)
+    const { nodes: treeNodes, edges: treeEdges } = walkDir(target, props)
+    const allFiles = collectJsTsFiles(target, props)
     const fileKeySet = new Set(allFiles.map(f => path.relative(target, f)))
     const initNodes = treeNodes.filter(n => n.attributes.kind !== 'file' || fileKeySet.has(n.key))
     appendVirtualNodes(initNodes, treeEdges, 0, 0)

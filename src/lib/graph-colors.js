@@ -1,15 +1,82 @@
+// ── Per-project-type extension colour maps ───────────────────────────────────
+// Only extensions listed here get a legend entry.
+// Unknown extensions still render — they use EXT_COLORS.other (gray).
+
+const EXT_COLORS_NODE = {
+  jsx:  '#06b6d4',
+  tsx:  '#06b6d4',
+  js:   '#f59e0b',
+  ts:   '#f59e0b',
+  mjs:  '#f59e0b',
+  cjs:  '#f59e0b',
+  css:  '#ec4899',
+  json: '#10b981',
+  html: '#a78bfa',
+  svg:  '#fb7185',
+}
+
+const EXT_COLORS_DOTNET = {
+  // C# / VB / F#
+  cs:     '#06b6d4',
+  vb:     '#f59e0b',
+  fs:     '#10b981',
+  // ASP.NET Web Forms
+  aspx:   '#818cf8',
+  ascx:   '#a78bfa',
+  asax:   '#c4b5fd',
+  ashx:   '#c4b5fd',
+  master: '#7c3aed',
+  // Razor / MVC
+  razor:  '#ec4899',
+  cshtml: '#a78bfa',
+  vbhtml: '#a78bfa',
+  // Data / config
+  edmx:   '#34d399',
+  resx:   '#6ee7b7',
+  xml:    '#f97316',
+  config: '#f97316',
+  json:   '#10b981',
+  sql:    '#38bdf8',
+  // UI
+  xaml:   '#fb7185',
+  scss:   '#f472b6',
+  less:   '#f472b6',
+  css:    '#ec4899',
+  // Code gen
+  tt:     '#94a3b8',
+  // Scripting
+  ps1:    '#facc15',
+  psd1:   '#fbbf24',
+  psm1:   '#fbbf24',
+}
+
+// Misc types that can appear in any project
+const EXT_COLORS_MISC = {
+  md:   '#f97316',
+  txt:  '#94a3b8',
+  xml:  '#f97316',
+  yml:  '#facc15',
+  yaml: '#facc15',
+  pdf:  '#ef4444',
+  csv:  '#34d399',
+  sh:   '#a3e635',
+  env:  '#fbbf24',
+  lock: '#6b7280',
+  md:   '#f97316',
+  png:  '#94a3b8',
+  gif:  '#94a3b8',
+}
+
+const EXT_COLORS_BY_TYPE = {
+  node:   { ...EXT_COLORS_MISC, ...EXT_COLORS_NODE },
+  dotnet: { ...EXT_COLORS_MISC, ...EXT_COLORS_DOTNET },
+}
+
+// Merged map used by nodeColor so every known extension gets a colour
 export const EXT_COLORS = {
-  jsx: '#06b6d4',
-  tsx: '#06b6d4',
-  js:  '#f59e0b',
-  ts:  '#f59e0b',
-  css: '#ec4899',
-  json:'#10b981',
-  md:  '#f97316',
-  html:'#a78bfa',
-  svg: '#fb7185',
-  png: '#94a3b8',
-  other:'#6b7280',
+  ...EXT_COLORS_NODE,
+  ...EXT_COLORS_DOTNET,
+  other: '#6b7280',
 }
 
 export function nodeColor(attrs) {
@@ -71,3 +138,26 @@ export const LEGEND = [
   { label: 'json',       color: '#10b981' },
   { label: 'md',         color: '#f97316' },
 ]
+
+/**
+ * Build a legend from the nodes currently in the graph.
+ * Only extensions that have an explicit colour in the project-type map
+ * get a legend entry — unknown/binary extensions (gray fallback) are omitted.
+ */
+export function computeLegend(getNodes, projectType = 'node') {
+  const colorMap = EXT_COLORS_BY_TYPE[projectType] ?? EXT_COLORS_NODE
+  const base = [
+    { label: 'root',       color: '#8b5cf6' },
+    { label: 'dir',        color: '#3b82f6' },
+    { label: 'dir (empty)',color: '#1e3a5f', border: '#3b82f6' },
+  ]
+  const seen = new Set()
+  const extEntries = []
+  for (const node of (getNodes?.() ?? [])) {
+    if (node.kind !== 'file' || !node.ext || seen.has(node.ext)) continue
+    if (!(node.ext in colorMap)) continue   // skip gray/unknown extensions
+    seen.add(node.ext)
+    extEntries.push({ label: `.${node.ext}`, color: colorMap[node.ext] })
+  }
+  return [...base, ...extEntries]
+}

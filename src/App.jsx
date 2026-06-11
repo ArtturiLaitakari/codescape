@@ -10,7 +10,8 @@ const LANG_LABELS = { fi: 'Suomi', en: 'English', sv: 'Svenska' }
 const LANGS = ['fi', 'en', 'sv']
 
 const PROJECT_TYPES = [
-  { id: 'node', emoji: '🧩', label: 'Node.js' },
+  { id: 'node',   emoji: '🧩', label: 'Node.js' },
+  { id: 'dotnet', emoji: '🔷', label: '.NET'    },
 ]
 
 const VIEWS = [
@@ -51,10 +52,10 @@ export default function App() {
     <div className="cs-app">
       <TabNav views={VIEWS} active={activeView} onChange={handleViewChange} lang={lang} onLangChange={setLang} theme={theme} onThemeToggle={toggleTheme} is3D={is3D} on3DToggle={toggle3D} projectType={projectType} onProjectTypeChange={setProjectType} />
 
-      {activeView === 'filemap'  && <FileMap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
-      {activeView === 'heatmap'  && <DependencyHeatmap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
-      {activeView === 'impact'   && <ChangeImpactMap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
-      {activeView === 'runtime'  && <RuntimeHeatmap key={is3D ? '3d' : '2d'} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'filemap'  && <FileMap key={`${projectType}-${is3D ? '3d' : '2d'}`} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} projectType={projectType} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'heatmap'  && <DependencyHeatmap key={`${projectType}-${is3D ? '3d' : '2d'}`} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} projectType={projectType} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'impact'   && <ChangeImpactMap key={`${projectType}-${is3D ? '3d' : '2d'}`} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} projectType={projectType} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'runtime'  && <RuntimeHeatmap key={`${projectType}-${is3D ? '3d' : '2d'}`} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} projectType={projectType} onViewReady={() => setViewReady(true)} />}
 
       {!viewReady && (
         <div className="cs-spinner-wrap cs-spinner-wrap--view">
@@ -127,10 +128,10 @@ function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeTog
       <div ref={projectPopupRef} className="cs-langwrap">
         <button
           onClick={() => setProjectOpen((v) => !v)}
-          title={PROJECT_TYPES.find(p => p.id === projectType)?.label ?? projectType}
+          title="Project type"
           className={`cs-iconbtn cs-iconbtn--lang${projectOpen ? ' cs-iconbtn--open' : ''}`}
         >
-          {PROJECT_TYPES.find(p => p.id === projectType)?.emoji ?? '⚙️'}
+          🧩
         </button>
 
         {projectOpen && (
@@ -141,7 +142,6 @@ function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeTog
                 onClick={() => { onProjectTypeChange(p.id); setProjectOpen(false) }}
                 className={`cs-langmenu__item${p.id === projectType ? ' cs-langmenu__item--active' : ''}`}
               >
-                <span className="cs-langmenu__flag">{p.emoji}</span>
                 {p.label}
                 {p.id === projectType && <span className="cs-langmenu__check">✓</span>}
               </button>

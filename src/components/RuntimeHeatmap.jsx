@@ -36,7 +36,7 @@ function filterBand(fileList, bandId) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', theme, is3D, onViewReady }) {
+export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', theme, is3D, projectType = 'node', onViewReady }) {
   const containerRef   = useRef(null)
   const nodeAttrsRef   = useRef({})
   const cleanupRef     = useRef(null)
@@ -69,6 +69,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
   const startStream = useRuntimeStream({
     nodeAttrsRef, load, patchNodes, addEdges, onRootChange,
     setStatus, setScanProgress, setActiveRoot, setInputValue, setFileList,
+    projectType,
   })
 
   function loadGraph(targetPath) {

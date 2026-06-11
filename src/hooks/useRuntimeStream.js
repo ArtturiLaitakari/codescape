@@ -47,14 +47,15 @@ export function useRuntimeStream({
   nodeAttrsRef,
   load, patchNodes, addEdges, onRootChange,
   setStatus, setScanProgress, setActiveRoot, setInputValue, setFileList,
+  projectType = 'node',
 }) {
   const startStream = useCallback((targetPath) => {
     setStatus('loading')
     setScanProgress(null)
 
     const url = targetPath
-      ? `${API_BASE}/api/runtimegraph/stream?path=${encodeURIComponent(targetPath)}`
-      : `${API_BASE}/api/runtimegraph/stream`
+      ? `${API_BASE}/api/runtimegraph/stream?path=${encodeURIComponent(targetPath)}&type=${projectType}`
+      : `${API_BASE}/api/runtimegraph/stream?type=${projectType}`
 
     const es = new EventSource(url)
 

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useGraphView, DEFAULT_LAYOUT_OPTIONS } from '../hooks/useGraphView.js'
-import { nodeColor, LEGEND } from '../lib/graph-colors.js'
+import { nodeColor, computeLegend } from '../lib/graph-colors.js'
 import { t, tf } from '../lib/i18n.js'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import FileCodeView from './FileCodeView.jsx'
 import { API_BASE } from '../lib/api-base.js'
 
-export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, onViewReady }) {
+export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, projectType = 'node', onViewReady }) {
   const containerRef = useRef(null)
 
   const {
@@ -36,8 +36,8 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, 
     setHovered(null)
     let cancelled = false
     const url = targetPath
-      ? `${API_BASE}/api/filemap?path=${encodeURIComponent(targetPath)}`
-      : `${API_BASE}/api/filemap`
+      ? `${API_BASE}/api/filemap?path=${encodeURIComponent(targetPath)}&type=${projectType}`
+      : `${API_BASE}/api/filemap?type=${projectType}`
     fetch(url)
       .then((r) => r.json())
       .then((body) => {
@@ -91,7 +91,7 @@ export default function FileMap({ sharedRoot, onRootChange, lang = 'fi', theme, 
       <div ref={containerRef} className="cs-canvas" />
 
       {(hovered ?? pinned) && <HoverTooltip hovered={hovered ?? pinned} lang={lang} />}
-      {status === 'ready' && <Legend />}
+      {status === 'ready' && <Legend getNodes={getNodes} projectType={projectType} />}
       {selectedFile && (
         <FileCodeView
           filePath={selectedFile}
@@ -150,10 +150,11 @@ function HoverTooltip({ hovered, lang }) {
   )
 }
 
-function Legend() {
+function Legend({ getNodes, projectType }) {
+  const entries = computeLegend(getNodes, projectType)
   return (
     <div className="cs-legend">
-      {LEGEND.map(({ label, color, border }) => (
+      {entries.map(({ label, color, border }) => (
         <div key={label} className="cs-legend__row">
           <span className="cs-legend__dot" style={{ '--cs-swatch': color, '--cs-swatch-border': border ? `1.5px solid ${border}` : undefined }} />
           <span className="cs-legend__label">{label}</span>
