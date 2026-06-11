@@ -3,6 +3,7 @@ import FileMap from './components/FileMap.jsx'
 import DependencyHeatmap from './components/DependencyHeatmap.jsx'
 import ChangeImpactMap from './components/ChangeImpactMap.jsx'
 import RuntimeHeatmap from './components/RuntimeHeatmap.jsx'
+import ComplexityMap from './components/ComplexityMap.jsx'
 import { t } from './lib/i18n.js'
 
 const LANG_FLAGS = { fi: '🇫🇮', en: '🇬🇧', sv: '🇸🇪' }
@@ -19,6 +20,7 @@ const VIEWS = [
   { id: 'heatmap',  labelKey: 'tab_heatmap' },
   { id: 'impact',   labelKey: 'tab_impact'  },
   { id: 'runtime',  labelKey: 'tab_runtime'  },
+  { id: 'cc',       labelKey: 'tab_cc'       },
 ]
 
 export default function App() {
@@ -56,6 +58,7 @@ export default function App() {
       {activeView === 'heatmap'  && <DependencyHeatmap key={`${projectType}-${is3D ? '3d' : '2d'}`} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} projectType={projectType} onViewReady={() => setViewReady(true)} />}
       {activeView === 'impact'   && <ChangeImpactMap key={`${projectType}-${is3D ? '3d' : '2d'}`} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} projectType={projectType} onViewReady={() => setViewReady(true)} />}
       {activeView === 'runtime'  && <RuntimeHeatmap key={`${projectType}-${is3D ? '3d' : '2d'}`} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} projectType={projectType} onViewReady={() => setViewReady(true)} />}
+      {activeView === 'cc'       && <ComplexityMap  key={`${projectType}-${is3D ? '3d' : '2d'}`} sharedRoot={sharedRoot} onRootChange={setSharedRoot} lang={lang} theme={theme} is3D={is3D} projectType={projectType} onViewReady={() => setViewReady(true)} />}
 
       {!viewReady && (
         <div className="cs-spinner-wrap cs-spinner-wrap--view">

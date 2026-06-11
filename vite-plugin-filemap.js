@@ -563,6 +563,98 @@ async function handleRuntimeGraph(req, res, rootDir) {
   sendJson(res, { ...(await buildRuntimeGraph(target, props)), root: target })
 }
 
+// ── Code Complexity graph ─────────────────────────────────────────────
+async function buildCCGraph(rootDir, props = {}) {
+  const allFiles = collectJsTsFiles(rootDir, props)
+  const project = createProject()
+  await loadProjectChunked(project, allFiles)
+
+  const fileKeySet = new Set(allFiles.map(f => path.relative(rootDir, f)))
+  const { nodes: treeNodes, edges: treeEdges } = walkDir(rootDir, props)
+
+  const ccData = {}
+  const sourceFiles = project.getSourceFiles()
+  for (let i = 0; i < sourceFiles.length; i += CHUNK) {
+    for (const sf of sourceFiles.slice(i, i + CHUNK)) {
+      const rel = path.relative(rootDir, sf.getFilePath())
+      if (!fileKeySet.has(rel)) continue
+      ccData[rel] = tryOr(() => detectFileFunctions(sf).complexity, null)
+    }
+    await tick()
+  }
+
+  const nodes = treeNodes
+    .filter(n => n.attributes.kind !== 'file' || fileKeySet.has(n.key))
+    .map(n => {
+      if (n.attributes.kind !== 'file') return n
+      const cc = ccData[n.key]
+      return { ...n, attributes: { ...n.attributes, ...(cc ?? {}), hasCC: !!cc } }
+    })
+
+  const nodeKeys = new Set(nodes.map(n => n.key))
+  return {
+    nodes,
+    treeEdges: treeEdges.filter(e => nodeKeys.has(e.source) && nodeKeys.has(e.target)),
+  }
+}
+
+async function handleCCGraph(req, res, rootDir) {
+  const { target, error } = validatePath(getQueryPath(req), rootDir)
+  if (error) return sendError(res, 400, error)
+  const props = getProps(getQueryType(req))
+  sendJson(res, { ...(await buildCCGraph(target, props)), root: target })
+}
+
+async function handleCCStream(req, res, rootDir) {
+  sseStart(res)
+
+  const { target, error } = validatePath(getQueryPath(req), rootDir)
+  if (error) {
+    sseSend(res, { type: 'error', error })
+    res.end()
+    return
+  }
+  const props = getProps(getQueryType(req))
+
+  try {
+    // 1. Walk dir tree and send it immediately (graph appears at once)
+    const { nodes: treeNodes, edges: treeEdges } = walkDir(target, props)
+    const allFiles = collectJsTsFiles(target, props)
+    const fileKeySet = new Set(allFiles.map(f => path.relative(target, f)))
+    const initNodes = treeNodes.filter(n => n.attributes.kind !== 'file' || fileKeySet.has(n.key))
+    sseSend(res, { type: 'tree', total: allFiles.length, nodes: initNodes, treeEdges, root: target })
+
+    // 2. Load AST project in chunks (non-blocking)
+    const project = createProject()
+    await loadProjectChunked(project, allFiles)
+
+    // 3. Analyse files in streaming batches
+    const sourceFiles = project.getSourceFiles()
+      .filter(sf => fileKeySet.has(path.relative(target, sf.getFilePath())))
+
+    for (let i = 0; i < sourceFiles.length; i += STREAM_CHUNK) {
+      const batchData = {}
+      for (const sf of sourceFiles.slice(i, i + STREAM_CHUNK)) {
+        const rel = path.relative(target, sf.getFilePath())
+        batchData[rel] = tryOr(() => detectFileFunctions(sf).complexity, null)
+      }
+      sseSend(res, {
+        type: 'batch',
+        done: Math.min(i + STREAM_CHUNK, sourceFiles.length),
+        total: sourceFiles.length,
+        ccData: batchData,
+      })
+      await tick()
+    }
+
+    sseSend(res, { type: 'done', root: target })
+    res.end()
+  } catch (e) {
+    tryOr(() => sseSend(res, { type: 'error', error: e.message }))
+    res.end()
+  }
+}
+
 async function handleFileCode(req, res) {
   const filePath = getQueryPath(req)
   if (!filePath) return sendError(res, 400, 'path required')
@@ -631,6 +723,7 @@ async function handleRuntimeStream(req, res, rootDir) {
 export {
   handleBrowse, handleFileMap, handleDepGraph,
   handleRuntimeGraph, handleFileCode, handleRuntimeStream,
+  handleCCGraph, handleCCStream,
   jsonHandler,
 }
 
@@ -647,6 +740,8 @@ export function fileMapPlugin(rootDir) {
       // and the shorter path would otherwise catch the SSE request and respond with JSON.
       mount('/api/runtimegraph/stream', (req, res) => handleRuntimeStream(req, res, rootDir))
       mount('/api/runtimegraph',        jsonHandler((req, res) => handleRuntimeGraph(req, res, rootDir)))
+      mount('/api/ccgraph/stream',       (req, res) => handleCCStream(req, res, rootDir))
+      mount('/api/ccgraph',             jsonHandler((req, res) => handleCCGraph(req, res, rootDir)))
       mount('/api/filecode',            jsonHandler((req, res) => handleFileCode(req, res)))
     },
   }

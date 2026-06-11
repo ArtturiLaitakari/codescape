@@ -66,6 +66,11 @@ const T = {
     runtime_score:     'Runtime-pisteet',
     subtitle_runtime:  'Runtime-kartta',
 
+    // ── Complexity Map ───────────────────────────────────────────────────────
+    tab_cc:            'CC-kartta',
+    subtitle_cc:       'Koodimonimutkaisuus',
+    nodes_cc:          '{count} solmua · syklomattisuus · klikkaa tiedostoa',
+
     // ── FileCodeView ─────────────────────────────────────────────────────
     subtitle_filecode: 'Koodirakenne',
     functions:         'funktiota',
@@ -160,6 +165,11 @@ const T = {
     runtime_score:     'Runtime score',
     subtitle_runtime:  'Runtime Map',
 
+    // ── Complexity Map ───────────────────────────────────────────────────────
+    tab_cc:            'CC Map',
+    subtitle_cc:       'Code Complexity',
+    nodes_cc:          '{count} nodes · cyclomatic complexity · click a file',
+
     // ── FileCodeView ─────────────────────────────────────────────────────
     subtitle_filecode: 'Code Structure',
     functions:         'functions',
@@ -253,6 +263,11 @@ const T = {
     cyclomatic:        'Förgreningar',
     runtime_score:     'Runtime-poäng',
     subtitle_runtime:  'Runtime-karta',
+
+    // ── Complexity Map ───────────────────────────────────────────────────────
+    tab_cc:            'CC-karta',
+    subtitle_cc:       'Kodkomplexitet',
+    nodes_cc:          '{count} noder · cyklomatisk komplexitet · klicka en fil',
 
     // ── FileCodeView ─────────────────────────────────────────────────────
     subtitle_filecode: 'Kodstruktur',

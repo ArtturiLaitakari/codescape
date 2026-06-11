@@ -39,8 +39,8 @@ const EXT_COLORS_DOTNET = {
   sql:    '#38bdf8',
   // UI
   xaml:   '#fb7185',
-  scss:   '#f472b6',
-  less:   '#f472b6',
+  scss:   '#f472d6',
+  less:   '#f472c6',
   css:    '#ec4899',
   // Code gen
   tt:     '#94a3b8',
@@ -63,8 +63,8 @@ const EXT_COLORS_MISC = {
   env:  '#fbbf24',
   lock: '#6b7280',
   md:   '#f97316',
-  png:  '#94a3b8',
-  gif:  '#94a3b8',
+  png:  '#84a3b8',
+  gif:  '#a4a3b8',
 }
 
 const EXT_COLORS_BY_TYPE = {

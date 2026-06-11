@@ -4,6 +4,7 @@ import path from 'path'
 import {
   handleBrowse, handleFileMap, handleDepGraph,
   handleRuntimeGraph, handleFileCode, handleRuntimeStream,
+  handleCCGraph, handleCCStream,
   jsonHandler,
 } from '../vite-plugin-filemap.js'
 
@@ -32,6 +33,8 @@ export function startApiServer(rootDir) {
       case '/api/depgraph':            return withRoot(handleDepGraph)
       case '/api/runtimegraph/stream': return handleRuntimeStream(req, res, rootDir)
       case '/api/runtimegraph':        return withRoot(handleRuntimeGraph)
+      case '/api/ccgraph/stream':       return handleCCStream(req, res, rootDir)
+      case '/api/ccgraph':             return withRoot(handleCCGraph)
       case '/api/filecode':            return jsonHandler((req, res) => handleFileCode(req, res))(req, res)
       default: {
         res.writeHead(404, { 'Content-Type': 'application/json' })
