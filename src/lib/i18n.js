@@ -70,6 +70,10 @@ const T = {
     tab_cc:            'CC-kartta',
     subtitle_cc:       'Koodimonimutkaisuus',
     nodes_cc:          '{count} solmua · syklomattisuus · klikkaa tiedostoa',
+    cc_band_critical:  'Kriittinen',
+    cc_band_high:      'Korkea',
+    cc_band_medium:    'Kohtalainen',
+    cc_band_low:       'Matala',
 
     // ── FileCodeView ─────────────────────────────────────────────────────
     subtitle_filecode: 'Koodirakenne',
@@ -169,6 +173,10 @@ const T = {
     tab_cc:            'CC Map',
     subtitle_cc:       'Code Complexity',
     nodes_cc:          '{count} nodes · cyclomatic complexity · click a file',
+    cc_band_critical:  'Critical',
+    cc_band_high:      'High',
+    cc_band_medium:    'Medium',
+    cc_band_low:       'Low',
 
     // ── FileCodeView ─────────────────────────────────────────────────────
     subtitle_filecode: 'Code Structure',
@@ -268,6 +276,10 @@ const T = {
     tab_cc:            'CC-karta',
     subtitle_cc:       'Kodkomplexitet',
     nodes_cc:          '{count} noder · cyklomatisk komplexitet · klicka en fil',
+    cc_band_critical:  'Kritisk',
+    cc_band_high:      'Hög',
+    cc_band_medium:    'Måttlig',
+    cc_band_low:       'Låg',
 
     // ── FileCodeView ─────────────────────────────────────────────────────
     subtitle_filecode: 'Kodstruktur',

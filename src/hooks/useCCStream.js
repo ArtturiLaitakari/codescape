@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useRef } from 'react'
 import { nodeSize } from '../lib/graph-colors.js'
 import { useGraphStream } from './useGraphStream.js'
 import { API_BASE } from '../lib/api-base.js'
@@ -76,6 +76,15 @@ function initialNodeColor(a) {
   return DIR_COLORS[a.kind] ?? '#6b7280'  // neutral gray for files
 }
 
+// ── CC band definitions (matches CC_ABS_KNEES thresholds) ────────────────────
+// Labels are in src/lib/i18n.js as cc_band_critical / high / medium / low
+export const CC_LEGEND_BANDS = [
+  { id: 'critical', minCC: 20,  maxCC: Infinity, color: '#ef4444' },
+  { id: 'high',     minCC: 10,  maxCC: 20,       color: '#f97316' },
+  { id: 'medium',   minCC: 4,   maxCC: 10,       color: '#eab308' },
+  { id: 'low',      minCC: 0,   maxCC: 4,        color: '#22c55e' },
+]
+
 /**
  * Manages the SSE stream from /api/ccgraph/stream.
  *
@@ -87,6 +96,7 @@ function initialNodeColor(a) {
  *   setScanProgress: (p: {done,total}|null) => void,
  *   setActiveRoot:   (r: string) => void,
  *   setInputValue:   (v: string) => void,
+ *   setFileList?:    (files: object[]) => void,
  *   projectType?:    string,
  *   excludedDirs?:   string[],
  * }} deps
@@ -95,9 +105,11 @@ function initialNodeColor(a) {
 export function useCCStream({
   load, patchNodes, onRootChange,
   setStatus, setScanProgress, setActiveRoot, setInputValue,
+  setFileList,
   projectType = 'node',
   excludedDirs = [],
 }) {
+  const fileAccRef = useRef({})  // key → cc attrs, accumulated across batches
   const startStream = useCallback((targetPath, excluded = excludedDirs) => {
     setStatus('loading')
     setScanProgress(null)
@@ -106,6 +118,8 @@ export function useCCStream({
     if (targetPath) params.set('path', targetPath)
     if (excluded.length > 0) params.set('exclude', excluded.join(','))
     const url = `${API_BASE}/api/ccgraph/stream?${params}`
+
+    fileAccRef.current = {}  // reset accumulator for this stream
 
     const handlers = {
       tree(msg) {
@@ -119,23 +133,28 @@ export function useCCStream({
         onRootChange?.(msg.root)
         setScanProgress({ done: 0, total: msg.total })
         setStatus('scanning')
+        setFileList?.([])
       },
 
       batch(msg) {
         // Colors are absolute — just paint the newly arrived nodes directly
-        patchNodes(
-          Object.entries(msg.ccData)
-            .filter(([, cc]) => cc)
-            .map(([key, cc]) => ({
-              key,
-              attributes: {
-                ...cc,
-                hasCC:  true,
-                color:  ccColor(cc.maxCyclomatic ?? 0),
-                size:   nodeSize({ kind: 'file' }) * (1 + Math.min((cc.maxCyclomatic ?? 1) / 10, 1.5)),
-              },
-            }))
-        )
+        const updates = Object.entries(msg.ccData)
+          .filter(([, cc]) => cc)
+          .map(([key, cc]) => ({
+            key,
+            attributes: {
+              ...cc,
+              hasCC:  true,
+              color:  ccColor(cc.maxCyclomatic ?? 0),
+              size:   nodeSize({ kind: 'file' }) * (1 + Math.min((cc.maxCyclomatic ?? 1) / 10, 1.5)),
+            },
+          }))
+        patchNodes(updates)
+        // Accumulate file entries for the legend band counts
+        for (const [key, cc] of Object.entries(msg.ccData)) {
+          if (cc) fileAccRef.current[key] = { key, ...cc }
+        }
+        setFileList?.(Object.values(fileAccRef.current))
         setScanProgress({ done: msg.done, total: msg.total })
       },
 

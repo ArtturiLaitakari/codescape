@@ -10,17 +10,17 @@ const LANG_FLAGS = { fi: '🇫🇮', en: '🇬🇧', sv: '🇸🇪' }
 const LANG_LABELS = { fi: 'Suomi', en: 'English', sv: 'Svenska' }
 const LANGS = ['fi', 'en', 'sv']
 
-const PROJECT_TYPES = [
-  { id: 'node',   emoji: '🧩', label: 'Node.js' },
-  { id: 'dotnet', emoji: '🔷', label: '.NET'    },
-]
-
 const VIEWS = [
   { id: 'filemap',  labelKey: 'tab_filemap' },
   { id: 'heatmap',  labelKey: 'tab_heatmap' },
   { id: 'impact',   labelKey: 'tab_impact'  },
   { id: 'runtime',  labelKey: 'tab_runtime'  },
   { id: 'cc',       labelKey: 'tab_cc'       },
+]
+
+const PROJECT_TYPES = [
+  { id: 'node',   label: 'Node.js' },
+  { id: 'dotnet', label: '.NET'    },
 ]
 
 export default function App() {
@@ -134,7 +134,7 @@ function TabNav({ views, active, onChange, lang, onLangChange, theme, onThemeTog
           title="Project type"
           className={`cs-iconbtn cs-iconbtn--lang${projectOpen ? ' cs-iconbtn--open' : ''}`}
         >
-          🧩
+          📦 🔄
         </button>
 
         {projectOpen && (
