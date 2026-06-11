@@ -62,39 +62,39 @@ export function sanitizeTemplateExpressions(js, ext) {
   // Handles  <%  <%=  <%:  <%#  <%--  etc.
   if (['.aspx', '.ascx', '.asax', '.ashx', '.master',
        '.jsp', '.jspx', '.erb', '.ejs'].includes(ext)) {
-    s = s.replace(/<%[\s\S]*?%>/g, '"__TMPL__"')
+    s = s.replace(/<%[\s\S]*?%>/g, '__TMPL__')
   }
 
   // ── Razor @(...) and @identifier ─────────────────────────────────────────
   if (['.cshtml', '.vbhtml', '.razor'].includes(ext)) {
     // Razor block expressions  @(...)
-    s = s.replace(/@\([^)]*\)/g, '"__RAZOR__"')
+    s = s.replace(/@\([^)]*\)/g, '__RAZOR__')
     // Razor inline member access  @Model.Foo  @ViewBag.Bar  @item  etc.
-    s = s.replace(/@[\w.[\]()]+/g, '"__RAZOR__"')
+    s = s.replace(/@[\w.[\]()]+/g, '__RAZOR__')
     // Also handle <%...%> which can appear in older .cshtml
-    s = s.replace(/<%[\s\S]*?%>/g, '"__TMPL__"')
+    s = s.replace(/<%[\s\S]*?%>/g, '__TMPL__')
   }
 
   // ── PHP <?php...?> ────────────────────────────────────────────────────────
   if (['.php', '.phtml'].includes(ext)) {
-    s = s.replace(/<\?(?:php|=)[\s\S]*?\?>/gi, '"__PHP__"')
+    s = s.replace(/<\?(?:php|=)[\s\S]*?\?>/gi, '__PHP__')
   }
 
   // ── JSP EL  ${...}  #{...} ───────────────────────────────────────────────
   if (['.jsp', '.jspx'].includes(ext)) {
-    s = s.replace(/[#$]\{[^}]*\}/g, '"__JSP__"')
+    s = s.replace(/[#$]\{[^}]*\}/g, '__JSP__')
   }
 
   // ── Twig / Jinja2  {{ }}  {% %}  {# #} ──────────────────────────────────
   if (['.twig', '.j2', '.jinja', '.jinja2'].includes(ext)) {
     s = s.replace(/\{#[\s\S]*?#\}/g, '')               // comments → empty
-    s = s.replace(/\{%[\s\S]*?%\}/g, '"__TWIG_TAG__"')
-    s = s.replace(/\{\{[\s\S]*?\}\}/g, '"__TWIG_VAR__"')
+    s = s.replace(/\{%[\s\S]*?%\}/g, '__TWIG_TAG__')
+    s = s.replace(/\{\{[\s\S]*?\}\}/g, '__TWIG_VAR__')
   }
 
   // ── Handlebars / Mustache  {{ }}  {{# }}  {{> }} ─────────────────────────
   if (['.hbs', '.handlebars'].includes(ext)) {
-    s = s.replace(/\{\{[\s\S]*?\}\}/g, '"__HBS__"')
+    s = s.replace(/\{\{[\s\S]*?\}\}/g, '__HBS__')
   }
 
   return s
@@ -120,7 +120,9 @@ export function extractInlineScripts(html, ext) {
     const body  = m[2]
     // Skip external script tags (those with src= attribute)
     if (/\bsrc\s*=/i.test(attrs)) continue
-    // Skip non-JS type attributes (e.g. type="text/template")
+    // Skip ASP.NET code-behind blocks — runat="server" contains C#/VB, not JS
+    if (/\brunat\s*=/i.test(attrs)) continue
+    // Skip non-JS type attributes (e.g. type="text/template", type="text/html")
     const typeM = /\btype\s*=\s*["']([^"']+)["']/i.exec(attrs)
     if (typeM && !/javascript|module/i.test(typeM[1])) continue
 
