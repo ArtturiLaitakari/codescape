@@ -412,5 +412,65 @@ export function useForceGraph3D(containerRef, {
     syncSpriteColors()
   }, [syncSpriteColors])
 
+  // ── Arrow-key camera rotation ─────────────────────────────────────────────
+  // Left/Right → rotate around Y-axis (azimuth)
+  // Up/Down    → tilt camera up/down (elevation)
+  //
+  // Movement runs on every animation frame (not on key-repeat events) so it
+  // feels as smooth as mouse-drag.  Keys are tracked in a Set; the rAF loop
+  // runs only while at least one arrow key is held.
+  useEffect(() => {
+    const SPEED = 1.8 * (Math.PI / 180) // °/frame at 60 fps ≈ ~108°/s
+    const held  = new Set()
+    let rafId   = null
+
+    const step = () => {
+      const g = graphRef.current
+      if (!g || held.size === 0) { rafId = null; return }
+
+      const cam = g.camera()
+      const { x, y, z } = cam.position
+      const r     = Math.hypot(x, y, z) || 1
+      let theta = Math.atan2(x, z)
+      let phi   = Math.asin(Math.max(-1, Math.min(1, y / r)))
+
+      if (held.has('ArrowLeft'))  theta -= SPEED
+      if (held.has('ArrowRight')) theta += SPEED
+      if (held.has('ArrowUp'))    phi = Math.min( Math.PI / 2 - 0.01, phi + SPEED)
+      if (held.has('ArrowDown'))  phi = Math.max(-Math.PI / 2 + 0.01, phi - SPEED)
+
+      const cosPhi = Math.cos(phi)
+      g.cameraPosition(
+        { x: r * cosPhi * Math.sin(theta), y: r * Math.sin(phi), z: r * cosPhi * Math.cos(theta) },
+        { x: 0, y: 0, z: 0 },
+        0,
+      )
+
+      rafId = requestAnimationFrame(step)
+    }
+
+    const onKeyDown = (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      e.preventDefault()
+      held.add(e.key)
+      if (!rafId) rafId = requestAnimationFrame(step)
+    }
+
+    const onKeyUp = (e) => {
+      held.delete(e.key)
+      // Loop stops itself when held becomes empty
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup',   onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup',   onKeyUp)
+      if (rafId) cancelAnimationFrame(rafId)
+    }
+  }, []) // no deps — reads graphRef live
+
   return { load, focusNode, getNodes, setFilter, patchNodes, addEdges, refreshTheme }
 }
