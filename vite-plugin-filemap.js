@@ -1,6 +1,7 @@
 /* global setImmediate */
 import fs from 'node:fs'
 import path from 'node:path'
+import { execFile } from 'node:child_process'
 import { Project } from 'ts-morph'
 import {
   IGNORE_DIRS, SOURCE_EXTS,
@@ -387,9 +388,105 @@ function resolveImport(fromDir, spec) {
   return null
 }
 
+// ── .NET namespace/using resolver ─────────────────────────────────────────────
+const DOTNET_EXTS = new Set(SOURCE_EXTS_DOTNET)
+
+/**
+ * Scan all .NET source files in `files` and return:
+ *   - namespaceMap: namespace → filePath[]  (one namespace can span many files)
+ *   - fileNamespaces: filePath → string[]   (namespaces declared in this file)
+ *   - fileUsings: filePath → string[]       (namespaces referenced by this file)
+ */
+function scanDotnetNamespaces(files) {
+  const namespaceMap   = {}   // ns → [filePath, ...]
+  const fileNamespaces = {}   // filePath → [ns, ...]
+  const fileUsings     = {}   // filePath → [ns, ...]
+
+  // Patterns:
+  //   C#  namespace Foo.Bar { ...  or  namespace Foo.Bar;
+  //   VB  Namespace Foo.Bar
+  //   using Foo.Bar;          (C# / F#)
+  //   @using Foo.Bar          (Razor)
+  //   Imports Foo.Bar         (VB)
+  const nsRe    = /(?:^|\n)\s*(?:namespace|Namespace)\s+([\w.]+)/g
+  const usingRe = /(?:^|\n)\s*(?:using|@using|Imports)\s+([\w.]+)\s*;?/g
+
+  for (const filePath of files) {
+    const ext = path.extname(filePath).toLowerCase()
+    if (!DOTNET_EXTS.has(ext)) continue
+    let src
+    try { src = fs.readFileSync(filePath, 'utf8') } catch { continue }
+
+    // Declared namespaces
+    const ns = []
+    let m
+    nsRe.lastIndex = 0
+    while ((m = nsRe.exec(src)) !== null) ns.push(m[1])
+    fileNamespaces[filePath] = ns
+    for (const n of ns) (namespaceMap[n] ??= []).push(filePath)
+
+    // Used namespaces
+    const usings = []
+    usingRe.lastIndex = 0
+    while ((m = usingRe.exec(src)) !== null) {
+      // Ignore static / alias usings: "using static Foo" or "using X = Y"
+      const candidate = m[1]
+      if (!candidate.includes('=')) usings.push(candidate)
+    }
+    fileUsings[filePath] = usings
+  }
+
+  return { namespaceMap, fileNamespaces, fileUsings }
+}
+
+/**
+ * Build import edges for a .NET project using namespace/using analysis.
+ * Returns { importEdges, fanIn, fanOut } like the JS version.
+ */
+function buildDotnetDeps(files, rootDir) {
+  const fileKeySet = new Set(files.map(f => path.relative(rootDir, f)))
+  const fanIn  = Object.fromEntries([...fileKeySet].map(k => [k, 0]))
+  const fanOut = Object.fromEntries([...fileKeySet].map(k => [k, 0]))
+  const importEdges = []
+  const seen = new Set()
+
+  const { namespaceMap, fileUsings } = scanDotnetNamespaces(files)
+
+  for (const srcPath of files) {
+    const srcRel  = path.relative(rootDir, srcPath)
+    const usings  = fileUsings[srcPath] ?? []
+
+    for (const ns of usings) {
+      // Match both exact namespace and any file whose namespace starts with `ns`
+      // (e.g. "using MyApp.Services" → matches "MyApp.Services.UserService")
+      const targets = Object.entries(namespaceMap)
+        .filter(([declaredNs]) => declaredNs === ns || declaredNs.startsWith(ns + '.'))
+        .flatMap(([, paths]) => paths)
+
+      for (const tgtPath of targets) {
+        if (tgtPath === srcPath) continue   // skip self-references
+        const tgtRel = path.relative(rootDir, tgtPath)
+        if (!fileKeySet.has(tgtRel)) continue
+        const edgeKey = `${srcRel}→${tgtRel}`
+        if (seen.has(edgeKey)) continue
+        seen.add(edgeKey)
+        importEdges.push({ source: srcRel, target: tgtRel })
+        fanOut[srcRel]  = (fanOut[srcRel]  ?? 0) + 1
+        fanIn[tgtRel]   = (fanIn[tgtRel]   ?? 0) + 1
+      }
+    }
+  }
+
+  return { importEdges, fanIn, fanOut }
+}
+
 // ── Dependency graph ─────────────────────────────────────────────────────────
-async function buildDepGraph(rootDir, props = {}) {
-  const allFiles = collectJsTsFiles(rootDir, props)
+
+/**
+ * Build fan-in/fanOut/importEdges for a JS/TS project using ts-morph import declarations.
+ * Returns { importEdges, fanIn, fanOut }.
+ */
+async function buildJsDeps(allFiles, rootDir) {
   const project = createProject()
   await loadProjectChunked(project, allFiles)
 
@@ -417,8 +514,19 @@ async function buildDepGraph(rootDir, props = {}) {
     }
     await tick()
   }
+  return { importEdges, fanIn, fanOut }
+}
 
-  const { nodes: treeNodes, edges: treeEdges } = walkDir(rootDir)
+async function buildDepGraph(rootDir, props = {}) {
+  const allFiles = collectJsTsFiles(rootDir, props)
+
+  const isDotnet = props.sourceExts && props.sourceExts.some(e => e === '.cs' || e === '.vb')
+  const { importEdges, fanIn, fanOut } = isDotnet
+    ? buildDotnetDeps(allFiles, rootDir)
+    : await buildJsDeps(allFiles, rootDir)
+
+  const fileKeySet = new Set(allFiles.map(f => path.relative(rootDir, f)))
+  const { nodes: treeNodes, edges: treeEdges } = walkDir(rootDir, props)
   const nodes = treeNodes
     .filter(n => n.attributes.kind !== 'file' || fileKeySet.has(n.key))
     .map(n => n.attributes.kind === 'file'
@@ -640,6 +748,83 @@ async function handleDepGraph(req, res, rootDir) {
   sendJson(res, { ...(await buildDepGraph(target, props)), root: target })
 }
 
+async function handleDepGraphStream(req, res, rootDir) {
+  sseStart(res)
+
+  const { target, error } = validatePath(getQueryPath(req), rootDir)
+  if (error) {
+    sseSend(res, { type: 'error', error })
+    res.end()
+    return
+  }
+  const props = getPropsWithExclude(req)
+
+  try {
+    // 1. Walk dir tree and send it immediately so the graph appears at once
+    const { nodes: treeNodes, edges: treeEdges } = walkDir(target, props)
+    const allFiles = collectJsTsFiles(target, props)
+    const fileKeySet = new Set(allFiles.map(f => path.relative(target, f)))
+    const initNodes = treeNodes.filter(n => n.attributes.kind !== 'file' || fileKeySet.has(n.key))
+    sseSend(res, { type: 'tree', total: allFiles.length, nodes: initNodes, treeEdges, root: target })
+
+    // 2. Analyse dependencies — strategy depends on project type
+    const isDotnet = props.sourceExts && props.sourceExts.some(e => e === '.cs' || e === '.vb')
+
+    let importEdges, fanIn, fanOut
+    if (isDotnet) {
+      // Synchronous regex-based namespace/using analysis — no ts-morph needed
+      ;({ importEdges, fanIn, fanOut } = buildDotnetDeps(allFiles, target))
+      sseSend(res, { type: 'progress', done: allFiles.length, total: allFiles.length })
+    } else {
+      // JS/TS: parse with ts-morph and stream progress per chunk
+      const project = createProject()
+      await loadProjectChunked(project, allFiles)
+
+      fanIn  = Object.fromEntries([...fileKeySet].map(k => [k, 0]))
+      fanOut = Object.fromEntries([...fileKeySet].map(k => [k, 0]))
+      importEdges = []
+
+      const sourceFiles = project.getSourceFiles()
+      for (let i = 0; i < sourceFiles.length; i += CHUNK) {
+        for (const sf of sourceFiles.slice(i, i + CHUNK)) {
+          const srcRel = path.relative(target, sf.getFilePath())
+          if (!fileKeySet.has(srcRel)) continue
+          for (const decl of sf.getImportDeclarations()) {
+            const spec = decl.getModuleSpecifierValue()
+            if (!spec.startsWith('.')) continue
+            const resolved = resolveImport(path.dirname(sf.getFilePath()), spec)
+            if (!resolved) continue
+            const targetRel = path.relative(target, resolved)
+            if (!fileKeySet.has(targetRel)) continue
+            importEdges.push({ source: srcRel, target: targetRel })
+            fanOut[srcRel]   = (fanOut[srcRel]   ?? 0) + 1
+            fanIn[targetRel] = (fanIn[targetRel] ?? 0) + 1
+          }
+        }
+        sseSend(res, { type: 'progress', done: Math.min(i + CHUNK, allFiles.length), total: allFiles.length })
+        await tick()
+      }
+    }
+
+    // 3. Send fan-in/out patches and import edges
+    const nodeKeys = new Set(initNodes.map(n => n.key))
+    const filteredImportEdges = importEdges.filter(e => nodeKeys.has(e.source) && nodeKeys.has(e.target))
+
+    sseSend(res, {
+      type: 'done',
+      root: target,
+      importEdges: filteredImportEdges,
+      fanData: Object.fromEntries(
+        [...fileKeySet].map(k => [k, { fanIn: fanIn[k] ?? 0, fanOut: fanOut[k] ?? 0 }])
+      ),
+    })
+    res.end()
+  } catch (e) {
+    tryOr(() => sseSend(res, { type: 'error', error: e.message }))
+    res.end()
+  }
+}
+
 async function handleRuntimeGraph(req, res, rootDir) {
   const { target, error } = validatePath(getQueryPath(req), rootDir)
   if (error) return sendError(res, 400, error)
@@ -747,6 +932,37 @@ async function handleFileCode(req, res) {
   sendJson(res, { ...(await buildFileCode(resolved)), file: resolved })
 }
 
+/**
+ * Open a file (at an optional line) in VS Code.
+ * GET /api/open-in-vscode?path=/abs/path&line=42
+ */
+function handleOpenInVsCode(req, res) {
+  const url      = new URL(req.url, 'http://localhost')
+  const filePath = url.searchParams.get('path')
+  const line     = url.searchParams.get('line')
+
+  if (!filePath || !path.isAbsolute(filePath)) {
+    return sendError(res, 400, 'Absolute path required')
+  }
+  if (line && !/^\d+$/.test(line)) {
+    return sendError(res, 400, 'line must be a positive integer')
+  }
+
+  const vscodeUrl = line ? `vscode://file/${filePath}:${line}` : `vscode://file/${filePath}`
+  const cb = (err) => err
+    ? sendError(res, 500, `Failed to open VS Code: ${err.message}`)
+    : sendJson(res, { ok: true })
+
+  if (process.platform === 'win32') {
+    execFile('cmd', ['/c', 'start', '', vscodeUrl], cb)
+  } else if (process.platform === 'darwin') {
+    execFile('open', [vscodeUrl], cb)
+  } else {
+    // Linux
+    execFile('xdg-open', [vscodeUrl], cb)
+  }
+}
+
 async function handleRuntimeStream(req, res, rootDir) {
   sseStart(res)  // start SSE first so any error reply is also SSE-formatted
 
@@ -805,8 +1021,8 @@ async function handleRuntimeStream(req, res, rootDir) {
 
 // ── Shared exports (used by electron/api-server.js) ──────────────────────────
 export {
-  handleBrowse, handleFileMap, handleDepGraph,
-  handleRuntimeGraph, handleFileCode, handleRuntimeStream,
+  handleBrowse, handleFileMap, handleDepGraph, handleDepGraphStream,
+  handleRuntimeGraph, handleFileCode, handleOpenInVsCode, handleRuntimeStream,
   handleCCGraph, handleCCStream,
   jsonHandler,
 }
@@ -819,6 +1035,7 @@ export function fileMapPlugin(rootDir) {
       const mount = (route, handler) => server.middlewares.use(route, handler)
       mount('/api/browse',              jsonHandler((req, res) => handleBrowse(req, res, rootDir)))
       mount('/api/filemap',             jsonHandler((req, res) => handleFileMap(req, res, rootDir)))
+      mount('/api/depgraph/stream',     (req, res) => handleDepGraphStream(req, res, rootDir))
       mount('/api/depgraph',            jsonHandler((req, res) => handleDepGraph(req, res, rootDir)))
       // /stream must come BEFORE /api/runtimegraph — connect middlewares match by prefix,
       // and the shorter path would otherwise catch the SSE request and respond with JSON.
@@ -827,6 +1044,7 @@ export function fileMapPlugin(rootDir) {
       mount('/api/ccgraph/stream',       (req, res) => handleCCStream(req, res, rootDir))
       mount('/api/ccgraph',             jsonHandler((req, res) => handleCCGraph(req, res, rootDir)))
       mount('/api/filecode',            jsonHandler((req, res) => handleFileCode(req, res)))
+      mount('/api/open-in-vscode',      jsonHandler((req, res) => handleOpenInVsCode(req, res)))
     },
   }
 }

@@ -2,8 +2,8 @@ import http from 'node:http'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import {
-  handleBrowse, handleFileMap, handleDepGraph,
-  handleRuntimeGraph, handleFileCode, handleRuntimeStream,
+  handleBrowse, handleFileMap, handleDepGraph, handleDepGraphStream,
+  handleRuntimeGraph, handleFileCode, handleOpenInVsCode, handleRuntimeStream,
   handleCCGraph, handleCCStream,
   jsonHandler,
 } from '../vite-plugin-filemap.js'
@@ -30,12 +30,14 @@ export function startApiServer(rootDir) {
     switch (pathname) {
       case '/api/browse':              return withRoot(handleBrowse)
       case '/api/filemap':             return withRoot(handleFileMap)
+      case '/api/depgraph/stream':     return handleDepGraphStream(req, res, rootDir)
       case '/api/depgraph':            return withRoot(handleDepGraph)
       case '/api/runtimegraph/stream': return handleRuntimeStream(req, res, rootDir)
       case '/api/runtimegraph':        return withRoot(handleRuntimeGraph)
       case '/api/ccgraph/stream':       return handleCCStream(req, res, rootDir)
       case '/api/ccgraph':             return withRoot(handleCCGraph)
       case '/api/filecode':            return jsonHandler((req, res) => handleFileCode(req, res))(req, res)
+      case '/api/open-in-vscode':      return jsonHandler((req, res) => handleOpenInVsCode(req, res))(req, res)
       default: {
         res.writeHead(404, { 'Content-Type': 'application/json' })
         res.end(JSON.stringify({ error: 'Not found' }))

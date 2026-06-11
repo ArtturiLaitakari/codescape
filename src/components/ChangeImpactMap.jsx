@@ -1,14 +1,12 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useGraphView } from '../hooks/useGraphView.js'
-import { nodeColor, nodeSize } from '../lib/graph-colors.js'
 import { t, tf, impactStatusMsg } from '../lib/i18n.js'
 import { buildAdjacency } from '../lib/impact-utils.js'
 import { useImpactZone } from '../hooks/useImpactZone.js'
+import { useDepStream } from '../hooks/useDepStream.js'
 import { ImportTooltip } from './ImportTooltip.jsx'
 import { GraphHeaderForm } from './GraphHeaderForm.jsx'
 import { ImpactDepthLegend } from './ImpactDepthLegend.jsx'
-import FileCodeView from './FileCodeView.jsx'
-import { API_BASE } from '../lib/api-base.js'
 
 export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi', theme, is3D, projectType = 'node', onViewReady }) {
   const containerRef     = useRef(null)
@@ -16,6 +14,8 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
   const forwardImportRef = useRef({})
   const forwardTreeRef   = useRef({})
   const nodeAttrsRef     = useRef({})
+  const cleanupRef       = useRef(null)
+  const [scanProgress, setScanProgress] = useState(null)
 
   const { selectedImpact, selectMode, getImpactZone, onClearFocus } =
     useImpactZone(nodeAttrsRef, forwardTreeRef, reverseAdjRef)
@@ -36,64 +36,42 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
     selectedFile, setSelectedFile,
     selectedFileAttrs,
     searchResetRef,
-    load, getNodes, setFilter,
+    load, getNodes, setFilter, addEdges, patchNodes,
   } = useGraphView(containerRef, {
     is3D, theme, sharedRoot, onViewReady,
+    setStatusOnReady: false,
+    openInVsCode: true,
     buildHovered,
     sigmaOptions: { getImpactZone, onClearFocus },
   })
 
+  const startStream = useDepStream({
+    nodeAttrsRef,
+    reverseAdjRef,
+    forwardImportRef,
+    load, patchNodes, addEdges, onRootChange,
+    setStatus, setScanProgress, setActiveRoot, setInputValue,
+    projectType,
+    onDone: (rev, fwdImport, treeEdges) => {
+      const { fwdTree } = buildAdjacency([], treeEdges ?? [])
+      forwardTreeRef.current = fwdTree
+    },
+  })
+
   const loadGraph = useCallback((targetPath) => {
-    setStatus('loading')
     setHovered(null)
     onClearFocus()
-    let cancelled = false
-    const url = targetPath
-      ? `${API_BASE}/api/depgraph?path=${encodeURIComponent(targetPath)}&type=${projectType}`
-      : `${API_BASE}/api/depgraph?type=${projectType}`
-    fetch(url)
-      .then((r) => r.json())
-      .then((body) => {
-        if (cancelled) return
-        if (body.error) throw new Error(body.error)
-        setActiveRoot(body.root)
-        setInputValue(body.root)
-        onRootChange?.(body.root)
-
-        const { rev, fwdImport, fwdTree } = buildAdjacency(body.importEdges, body.treeEdges)
-        reverseAdjRef.current = rev
-        forwardImportRef.current = fwdImport
-        forwardTreeRef.current = fwdTree
-
-        // Index node attributes for kind lookups in getImpactZone
-        const nodeAttrs = {}
-        for (const { key, attributes } of body.nodes) nodeAttrs[key] = attributes
-        nodeAttrsRef.current = nodeAttrs
-
-        // Default file-type colours — orphaned files (fanIn === 0) get red
-        const nodes = body.nodes.map(({ key, attributes }) => {
-          const orphan = attributes.kind === 'file' && (attributes.fanIn ?? 0) === 0
-          return {
-            key,
-            attributes: {
-              ...attributes,
-              color: orphan ? '#ef4444' : nodeColor(attributes),
-              size: nodeSize(attributes),
-            },
-          }
-        })
-
-        load(nodes, body.treeEdges, '__root__', body.importEdges)
-      })
-      .catch((e) => { if (!cancelled) setStatus(`error: ${e.message}`) })
-    return () => { cancelled = true }
-  }, [load, onRootChange, onClearFocus]) // eslint-disable-line react-hooks/exhaustive-deps
+    cleanupRef.current?.()
+    const cleanup = startStream(targetPath)
+    cleanupRef.current = cleanup
+    return cleanup
+  }, [startStream, setHovered, onClearFocus])
 
   useEffect(() => {
     const cleanup = loadGraph(sharedRoot ?? '')
     return cleanup
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []) // only on mount — sharedRoot is not a live dependency
+  }, []) // only on mount
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -113,6 +91,7 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
     <div className="cs-view cs-view--impact">
       <ImpactHeader
         status={status}
+        scanProgress={scanProgress}
         nodeCount={nodeCount}
         inputValue={inputValue}
         activeRoot={activeRoot}
@@ -138,23 +117,14 @@ export default function ChangeImpactMap({ sharedRoot, onRootChange, lang = 'fi',
         />
       )}
       {status === 'ready' && <ImpactDepthLegend selectMode={selectMode} lang={lang} />}
-      {selectedFile && (
-        <FileCodeView
-          filePath={selectedFile}
-          preloadedComplexity={selectedFileAttrs}
-          activeRoot={activeRoot}
-          onClose={() => setSelectedFile(null)}
-          lang={lang}
-        />
-      )}
     </div>
   )
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, searchResetRef, onInputChange, onSelect, onSubmit, onReset }) {
-  const loading = status === 'loading'
+function ImpactHeader({ status, scanProgress, nodeCount, inputValue, activeRoot, selectedImpact, selectMode, lang, getNodes, setFilter, searchResetRef, onInputChange, onSelect, onSubmit, onReset }) {
+  const loading = status === 'loading' || status === 'scanning'
   const statusMsg = impactStatusMsg(selectedImpact, selectMode, lang)
   return (
     <div className="cs-header">
@@ -166,8 +136,8 @@ function ImpactHeader({ status, nodeCount, inputValue, activeRoot, selectedImpac
         ) : (
           <span className={`cs-status${status.startsWith('error') ? ' cs-status--error' : ''}`}>
             {status === 'ready' ? tf('nodes_impact', { count: nodeCount }, lang)
-             : status === 'loading' ? t('parsing_imports', lang)
-             : status}
+             : scanProgress ? `${t('scanning', lang)} ${scanProgress.done} / ${scanProgress.total}`
+             : t('parsing_imports', lang)}
           </span>
         )}
       </div>

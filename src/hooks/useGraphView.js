@@ -37,6 +37,7 @@ export function useGraphView(containerRef, {
   onViewReady,
   buildHovered = null,
   setStatusOnReady = true,
+  openInVsCode = false,
   sigmaOptions = {},
   forceOptions = {},
 } = {}) {
@@ -60,6 +61,7 @@ export function useGraphView(containerRef, {
   // cache so double-click opens instantly.
   const prefetchTimerRef = useRef(null)
   useEffect(() => {
+    if (openInVsCode) return   // no prefetch needed — we open VS Code directly
     clearTimeout(prefetchTimerRef.current)
     const h = hovered
     if (!h || h.kind !== 'file' || !activeRootRef.current) return
@@ -93,11 +95,16 @@ export function useGraphView(containerRef, {
     if (attrs?.kind === 'file' && activeRootRef.current) {
       const ext = attrs?.ext ?? ''
       if (CODE_EXTS.has(ext) || ext) {
-        setSelectedFile(activeRootRef.current.replace(/\/$/, '') + '/' + key)
-        setSelectedFileAttrs(attrs ?? null)
+        const absPath = activeRootRef.current.replace(/\/$/, '') + '/' + key
+        if (openInVsCode) {
+          fetch(`${API_BASE}/api/open-in-vscode?path=${encodeURIComponent(absPath)}`).catch(() => {})
+        } else {
+          setSelectedFile(absPath)
+          setSelectedFileAttrs(attrs ?? null)
+        }
       }
     }
-  }, [])
+  }, [openInVsCode])
 
   const sigmaGraph = useSigmaGraph(is3D ? null : containerRef, {
     ...sigmaOptions,
