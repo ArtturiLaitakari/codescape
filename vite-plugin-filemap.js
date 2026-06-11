@@ -12,6 +12,10 @@ import {
   IGNORE_DIRS as IGNORE_DIRS_DOTNET,
   SOURCE_EXTS as SOURCE_EXTS_DOTNET,
 } from './dotnet.properties.js'
+import {
+  isMixedCodeFile,
+  extractInlineScripts,
+} from './src/lib/mixed-code-utils.js'
 
 // ── Tuning constants (not language-specific) ──────────────────────────────────
 const CHUNK = 50          // files added to ts-morph per event-loop tick
@@ -102,11 +106,37 @@ function createProject() {
   return new Project(PROJECT_OPTS)
 }
 
+/**
+ * For server-side template files (.aspx, .razor, .jsp, .php, .erb, …):
+ * extract inline JS and return a virtual source file descriptor.
+ * Returns { virtualPath, content } or null for plain JS/TS files.
+ */
+function extractScriptForFile(filePath) {
+  if (!isMixedCodeFile(filePath)) return null
+
+  let src
+  try { src = fs.readFileSync(filePath, 'utf8') } catch { return null }
+
+  const ext = path.extname(filePath).toLowerCase()
+  const js = extractInlineScripts(src, ext)
+  if (!js) return null
+
+  return {
+    virtualPath: filePath + '.extracted.js',
+    content: js,
+  }
+}
+
 /** Add files in chunks, yielding the event loop between batches. */
 async function loadProjectChunked(project, files) {
   for (let i = 0; i < files.length; i += CHUNK) {
     for (const f of files.slice(i, i + CHUNK)) {
-      tryOr(() => project.addSourceFileAtPath(f), null)
+      const extracted = extractScriptForFile(f)
+      if (extracted) {
+        tryOr(() => project.createSourceFile(extracted.virtualPath, extracted.content, { overwrite: true }), null)
+      } else {
+        tryOr(() => project.addSourceFileAtPath(f), null)
+      }
     }
     await tick()
   }
@@ -498,9 +528,17 @@ async function buildFileCode(filePath) {
 
   await tick()  // yield before heavy synchronous parse
   const project = createProject()
-  try { project.addSourceFileAtPath(filePath) }
-  catch (e) { throw new Error(`Cannot parse file: ${e.message}`, { cause: e }) }
-  const sf = project.getSourceFile(filePath)
+
+  let sf
+  const extracted = extractScriptForFile(filePath)
+  if (extracted) {
+    sf = tryOr(() => project.createSourceFile(extracted.virtualPath, extracted.content, { overwrite: true }), null)
+  } else {
+    try { project.addSourceFileAtPath(filePath) }
+    catch (e) { throw new Error(`Cannot parse file: ${e.message}`, { cause: e }) }
+    sf = project.getSourceFile(filePath)
+  }
+
   if (!sf) throw new Error('File not found in project after adding')
   await tick()  // yield after parse, before analysis
   const result = detectFileFunctions(sf)

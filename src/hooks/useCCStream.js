@@ -24,13 +24,43 @@ function lerpColor(a, b, t) {
   return `#${((r << 16) | (g << 8) | bl).toString(16).padStart(6, '0')}`
 }
 
-export function ccColor(maxCyclomatic, globalMax) {
-  if (!maxCyclomatic || globalMax === 0) return CC_STOPS[0].color
-  const t = Math.min(maxCyclomatic / globalMax, 1)
+// ⚠️  CC colouring is ALWAYS ABSOLUTE — never relative to the project's max.
+//     Using a relative scale (e.g. normalising by globalMax) would make every
+//     project look equally complex: a project where the worst file is CC 3
+//     would show red, which is misleading.  The thresholds below are fixed
+//     industry reference points and must not be changed to per-scan values.
+// Absolute CC thresholds mapped to the colour scale t-values:
+//   CC  0  → t 0.00  (green)      — trivial
+//   CC  4  → t 0.25  (lime)       — med boundary
+//   CC 10  → t 0.50  (yellow)     — high boundary
+//   CC 20  → t 0.75  (orange)     — wayTooHigh boundary
+//   CC 40+ → t 1.00  (red)        — saturates
+const CC_ABS_KNEES = [
+  { cc: 0,  t: 0.0  },
+  { cc: 4,  t: 0.25 },
+  { cc: 10, t: 0.5  },
+  { cc: 20, t: 0.75 },
+  { cc: 40, t: 1.0  },
+]
+
+function ccColorFromT(t) {
+  const clamped = Math.max(0, Math.min(1, t))
   for (let i = 1; i < CC_STOPS.length; i++) {
-    if (t <= CC_STOPS[i].t) {
-      const seg = (t - CC_STOPS[i - 1].t) / (CC_STOPS[i].t - CC_STOPS[i - 1].t)
+    if (clamped <= CC_STOPS[i].t) {
+      const seg = (clamped - CC_STOPS[i - 1].t) / (CC_STOPS[i].t - CC_STOPS[i - 1].t)
       return lerpColor(CC_STOPS[i - 1].color, CC_STOPS[i].color, seg)
+    }
+  }
+  return CC_STOPS[CC_STOPS.length - 1].color
+}
+
+export function ccColor(maxCyclomatic) {
+  if (!maxCyclomatic) return CC_STOPS[0].color
+  const knees = CC_ABS_KNEES
+  for (let i = 1; i < knees.length; i++) {
+    if (maxCyclomatic <= knees[i].cc) {
+      const seg = (maxCyclomatic - knees[i - 1].cc) / (knees[i].cc - knees[i - 1].cc)
+      return ccColorFromT(knees[i - 1].t + seg * (knees[i].t - knees[i - 1].t))
     }
   }
   return CC_STOPS[CC_STOPS.length - 1].color
@@ -77,10 +107,6 @@ export function useCCStream({
     if (excluded.length > 0) params.set('exclude', excluded.join(','))
     const url = `${API_BASE}/api/ccgraph/stream?${params}`
 
-    // Per-connection accumulator (lives only for this EventSource)
-    const acc = {}           // key → cc attributes
-    let globalMax = 0
-
     const handlers = {
       tree(msg) {
         const nodes = msg.nodes.map(({ key, attributes: a }) => ({
@@ -96,23 +122,19 @@ export function useCCStream({
       },
 
       batch(msg) {
-        // Merge new CC data and recompute globalMax
-        for (const [key, cc] of Object.entries(msg.ccData)) {
-          if (!cc) continue
-          acc[key] = cc
-          if ((cc.maxCyclomatic ?? 0) > globalMax) globalMax = cc.maxCyclomatic
-        }
-        // Repaint all accumulated file nodes with updated scale
+        // Colors are absolute — just paint the newly arrived nodes directly
         patchNodes(
-          Object.entries(acc).map(([key, cc]) => ({
-            key,
-            attributes: {
-              ...cc,
-              hasCC:  true,
-              color:  ccColor(cc.maxCyclomatic ?? 0, globalMax),
-              size:   nodeSize({ kind: 'file' }) * (1 + Math.min((cc.maxCyclomatic ?? 1) / 10, 1.5)),
-            },
-          }))
+          Object.entries(msg.ccData)
+            .filter(([, cc]) => cc)
+            .map(([key, cc]) => ({
+              key,
+              attributes: {
+                ...cc,
+                hasCC:  true,
+                color:  ccColor(cc.maxCyclomatic ?? 0),
+                size:   nodeSize({ kind: 'file' }) * (1 + Math.min((cc.maxCyclomatic ?? 1) / 10, 1.5)),
+              },
+            }))
         )
         setScanProgress({ done: msg.done, total: msg.total })
       },

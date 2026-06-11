@@ -181,7 +181,7 @@ function CCTooltip({ hovered, onExclude }) {
   }
   return (
     <div className="cs-tooltip">
-      <div className="cs-tooltip__title" style={{ '--cs-ink': ccColor(hovered.maxCyclomatic, hovered.maxCyclomatic) }}>{hovered.label}</div>
+      <div className="cs-tooltip__title" style={{ '--cs-ink': ccColor(hovered.maxCyclomatic) }}>{hovered.label}</div>
       <div className="cs-tooltip__path">{hovered.key}</div>
       <div className="cs-tooltip__rows">
         <CCRow label="Max CC"     value={hovered.maxCyclomatic} />
