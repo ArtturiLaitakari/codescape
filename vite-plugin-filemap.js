@@ -466,13 +466,44 @@ async function buildRuntimeGraph(rootDir, props = {}) {
   }
 }
 
+// ── File-code parse cache ─────────────────────────────────────────────────────
+// Avoids re-creating a ts-morph Project on every open of the same file.
+// Keyed by absolute path; invalidated when the file's mtime changes.
+const FILE_CODE_CACHE = new Map()   // path → { mtime, result }
+const FILE_CODE_CACHE_MAX = 40      // evict oldest when over limit
+
+function fileCodeCacheGet(filePath) {
+  const entry = FILE_CODE_CACHE.get(filePath)
+  if (!entry) return null
+  try {
+    const mtime = fs.statSync(filePath).mtimeMs
+    if (mtime !== entry.mtime) { FILE_CODE_CACHE.delete(filePath); return null }
+    return entry.result
+  } catch { FILE_CODE_CACHE.delete(filePath); return null }
+}
+
+function fileCodeCacheSet(filePath, result) {
+  try {
+    const mtime = fs.statSync(filePath).mtimeMs
+    if (FILE_CODE_CACHE.size >= FILE_CODE_CACHE_MAX) {
+      FILE_CODE_CACHE.delete(FILE_CODE_CACHE.keys().next().value)
+    }
+    FILE_CODE_CACHE.set(filePath, { mtime, result })
+  } catch { /* ignore stat errors */ }
+}
+
 async function buildFileCode(filePath) {
+  const cached = fileCodeCacheGet(filePath)
+  if (cached) return cached
+
   const project = createProject()
   try { project.addSourceFileAtPath(filePath) }
   catch (e) { throw new Error(`Cannot parse file: ${e.message}`, { cause: e }) }
   const sf = project.getSourceFile(filePath)
   if (!sf) throw new Error('File not found in project after adding')
-  return detectFileFunctions(sf)
+  const result = detectFileFunctions(sf)
+  fileCodeCacheSet(filePath, result)
+  return result
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────
@@ -500,6 +531,19 @@ function getQueryPath(req) {
 
 function getQueryType(req) {
   return new URL(req.url, 'http://localhost').searchParams.get('type') ?? 'node'
+}
+
+/**
+ * Like getProps(), but merges any ?exclude=dir1,dir2 query param into ignoreDirs.
+ * This lets the frontend exclude specific directory names at request time.
+ */
+function getPropsWithExclude(req) {
+  const props  = getProps(getQueryType(req))
+  const raw    = new URL(req.url, 'http://localhost').searchParams.get('exclude')
+  if (!raw) return props
+  const extra  = raw.split(',').map(s => s.trim()).filter(Boolean)
+  if (extra.length === 0) return props
+  return { ...props, ignoreDirs: new Set([...props.ignoreDirs, ...extra]) }
 }
 
 /** Validate a user-supplied path; resolves to absolute or returns { error }. */
@@ -545,21 +589,21 @@ function handleBrowse(req, res, rootDir) {
 function handleFileMap(req, res, rootDir) {
   const { target, error } = validatePath(getQueryPath(req), rootDir)
   if (error) return sendError(res, 400, error)
-  const props = getProps(getQueryType(req))
+  const props = getPropsWithExclude(req)
   sendJson(res, { ...walkDir(target, props), root: target })
 }
 
 async function handleDepGraph(req, res, rootDir) {
   const { target, error } = validatePath(getQueryPath(req), rootDir)
   if (error) return sendError(res, 400, error)
-  const props = getProps(getQueryType(req))
+  const props = getPropsWithExclude(req)
   sendJson(res, { ...(await buildDepGraph(target, props)), root: target })
 }
 
 async function handleRuntimeGraph(req, res, rootDir) {
   const { target, error } = validatePath(getQueryPath(req), rootDir)
   if (error) return sendError(res, 400, error)
-  const props = getProps(getQueryType(req))
+  const props = getPropsWithExclude(req)
   sendJson(res, { ...(await buildRuntimeGraph(target, props)), root: target })
 }
 
@@ -601,7 +645,7 @@ async function buildCCGraph(rootDir, props = {}) {
 async function handleCCGraph(req, res, rootDir) {
   const { target, error } = validatePath(getQueryPath(req), rootDir)
   if (error) return sendError(res, 400, error)
-  const props = getProps(getQueryType(req))
+  const props = getPropsWithExclude(req)
   sendJson(res, { ...(await buildCCGraph(target, props)), root: target })
 }
 
@@ -614,7 +658,7 @@ async function handleCCStream(req, res, rootDir) {
     res.end()
     return
   }
-  const props = getProps(getQueryType(req))
+  const props = getPropsWithExclude(req)
 
   try {
     // 1. Walk dir tree and send it immediately (graph appears at once)
@@ -672,7 +716,7 @@ async function handleRuntimeStream(req, res, rootDir) {
     res.end()
     return
   }
-  const props = getProps(getQueryType(req))
+  const props = getPropsWithExclude(req)
 
   try {
     // 1. Tree + placeholder virtual nodes — sent immediately

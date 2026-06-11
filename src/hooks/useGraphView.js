@@ -2,7 +2,12 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { useSigmaGraph } from './useSigmaGraph.js'
 import { useForceGraph3D, DEFAULT_LAYOUT_OPTIONS } from './useForceGraph3D.js'
 
-const CODE_EXTS = new Set(['ts', 'tsx', 'js', 'jsx'])
+// Extensions that can be opened in FileCodeView (JS/TS + .NET + others)
+const CODE_EXTS = new Set([
+  'ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs',   // JS/TS
+  'cs', 'vb', 'fs',                          // .NET
+  'py', 'rb', 'go', 'java', 'kt', 'swift',  // others
+])
 
 export { DEFAULT_LAYOUT_OPTIONS }
 
@@ -44,6 +49,8 @@ export function useGraphView(containerRef, {
   const [inputValue,   setInputValue]   = useState(sharedRoot ?? '')
   const [activeRoot,   setActiveRoot]   = useState(null)
   const [selectedFile, setSelectedFile] = useState(null)
+  const [selectedFileAttrs, setSelectedFileAttrs] = useState(null)
+  const [excludedDirs, setExcludedDirs] = useState([])  // string[] — extra dirs to ignore
 
   useEffect(() => { activeRootRef.current = activeRoot }, [activeRoot])
 
@@ -65,8 +72,12 @@ export function useGraphView(containerRef, {
   }, [])
 
   const onDoubleClickNode = useCallback((key, attrs) => {
-    if (attrs?.kind === 'file' && CODE_EXTS.has(attrs?.ext) && activeRootRef.current) {
-      setSelectedFile(activeRootRef.current.replace(/\/$/, '') + '/' + key)
+    if (attrs?.kind === 'file' && activeRootRef.current) {
+      const ext = attrs?.ext ?? ''
+      if (CODE_EXTS.has(ext) || ext) {
+        setSelectedFile(activeRootRef.current.replace(/\/$/, '') + '/' + key)
+        setSelectedFileAttrs(attrs ?? null)
+      }
     }
   }, [])
 
@@ -96,6 +107,8 @@ export function useGraphView(containerRef, {
     activeRoot, setActiveRoot,
     activeRootRef,
     selectedFile, setSelectedFile,
+    selectedFileAttrs, setSelectedFileAttrs,
+    excludedDirs, setExcludedDirs,
     searchResetRef,
     load, getNodes, setFilter, patchNodes, addEdges, focusNode, refreshTheme,
   }

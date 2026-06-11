@@ -55,6 +55,12 @@
 
 .cs-view--filecode { --cs-accent-contrast: #ffffff; }
 
+.cs-view--cc {
+  --cs-accent: #a855f7;
+  --cs-accent-dim: rgba(168, 85, 247, 0.15);
+  --cs-accent-contrast: #ffffff;
+}
+
 .cs-canvas {
   position: absolute;
   inset: 0;
@@ -329,6 +335,33 @@
   pointer-events: none;
 }
 
+/* Tooltip with interactive buttons (e.g. exclude dir) */
+.cs-tooltip--interactive {
+  pointer-events: auto;
+}
+
+.cs-tooltip__rows {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.cs-tooltip__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cs-tooltip__key {
+  color: var(--cs-text-muted);
+}
+
+.cs-tooltip__val {
+  color: var(--cs-text-primary);
+  font-weight: 600;
+}
+
 .cs-tooltip__title {
   font-weight: 700;
   color: var(--cs-ink, var(--cs-text-primary));
@@ -500,6 +533,67 @@
   color: var(--cs-text-dim);
   font-size: 10px;
   flex-shrink: 0;
+}
+
+/* ── Excluded dirs badges ──────────────────────────────────────────────────── */
+
+.cs-excluded-badges {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 15;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  max-width: 80vw;
+}
+
+.cs-excluded-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 10px;
+  background: var(--cs-header-bg);
+  border: 1px solid var(--cs-border-2);
+  border-radius: 999px;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--cs-text-muted);
+}
+
+.cs-excluded-badge__name { color: var(--cs-text-dim); }
+
+.cs-excluded-badge__remove {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--cs-text-dim);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 1px;
+  opacity: 0.6;
+}
+.cs-excluded-badge__remove:hover { opacity: 1; color: #ef4444; }
+
+.cs-tooltip__exclude-btn {
+  display: block;
+  margin-top: 8px;
+  width: 100%;
+  padding: 4px 8px;
+  background: none;
+  border: 1px solid var(--cs-border-2);
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--cs-text-muted);
+  text-align: left;
+}
+.cs-tooltip__exclude-btn:hover {
+  border-color: #ef4444;
+  color: #ef4444;
 }
 
 /* ── Runtime file panel ────────────────────────────────────────────────────── */

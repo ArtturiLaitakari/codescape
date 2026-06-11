@@ -35,6 +35,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
     inputValue, setInputValue,
     activeRoot, setActiveRoot,
     selectedFile, setSelectedFile,
+    selectedFileAttrs,
     searchResetRef,
     load, getNodes, setFilter,
   } = useGraphView(containerRef, {
@@ -157,6 +158,7 @@ export default function DependencyHeatmap({ sharedRoot, onRootChange, lang = 'fi
       {selectedFile && (
         <FileCodeView
           filePath={selectedFile}
+          preloadedComplexity={selectedFileAttrs}
           activeRoot={activeRoot}
           onClose={() => setSelectedFile(null)}
           lang={lang}

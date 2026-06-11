@@ -53,6 +53,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
     inputValue, setInputValue,
     activeRoot, setActiveRoot,
     selectedFile, setSelectedFile,
+    selectedFileAttrs,
     searchResetRef,
     load, getNodes, setFilter, patchNodes, addEdges, focusNode,
   } = useGraphView(containerRef, {
@@ -153,6 +154,7 @@ export default function RuntimeHeatmap({ sharedRoot, onRootChange, lang = 'en', 
       {selectedFile && (
         <FileCodeView
           filePath={selectedFile}
+          preloadedComplexity={selectedFileAttrs}
           activeRoot={activeRoot}
           onClose={() => setSelectedFile(null)}
           lang={lang}

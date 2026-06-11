@@ -266,10 +266,14 @@ function MindMap({ data, hovered, onHover, filePath, activeRoot }) {
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-export default function FileCodeView({ filePath, activeRoot, onClose, lang = 'en' }) {
+export default function FileCodeView({ filePath, activeRoot, onClose, lang = 'en', preloadedComplexity = null }) {
   const [data,    setData]    = useState(null)
   const [status,  setStatus]  = useState('loading')
   const [hovered, setHovered] = useState(null)
+
+  // If the caller passes node attributes from the graph (CC/runtime stream),
+  // we can show the AnalysisPanel immediately — before the full fetch completes.
+  const earlyComplexity = preloadedComplexity?.hasCC ? preloadedComplexity : null
 
   useEffect(() => {
     if (!filePath) return
@@ -341,9 +345,9 @@ export default function FileCodeView({ filePath, activeRoot, onClose, lang = 'en
         )}
       </div>
 
-      {/* Analysis panel */}
-      {status === 'ready' && data?.complexity && (
-        <AnalysisPanel complexity={data.complexity} lang={lang} />
+      {/* Analysis panel — show immediately from preloaded data, replace when full data arrives */}
+      {(data?.complexity ?? earlyComplexity) && (
+        <AnalysisPanel complexity={data?.complexity ?? earlyComplexity} lang={lang} />
       )}
 
       {hovered && <CodeTooltip node={hovered} lang={lang} />}

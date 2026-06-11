@@ -13,11 +13,13 @@ export default function ComplexityMap({ sharedRoot, onRootChange, lang = 'en', t
   const {
     status, setStatus,
     hovered, setHovered,
-    pinned,
+    pinned, setPinned,
     nodeCount,
     inputValue, setInputValue,
     activeRoot, setActiveRoot,
     selectedFile, setSelectedFile,
+    selectedFileAttrs,
+    excludedDirs, setExcludedDirs,
     searchResetRef,
     load, getNodes, setFilter, patchNodes,
   } = useGraphView(containerRef, {
@@ -36,15 +38,23 @@ export default function ComplexityMap({ sharedRoot, onRootChange, lang = 'en', t
   const startStream = useCCStream({
     load, patchNodes, onRootChange,
     setStatus, setScanProgress, setActiveRoot, setInputValue,
-    projectType,
+    projectType, excludedDirs,
   })
 
-  function loadGraph(targetPath) {
+  function loadGraph(targetPath, excluded = excludedDirs) {
     cleanupRef.current?.()
     setHovered(null)
-    const cleanup = startStream(targetPath)
+    setPinned(null)
+    const cleanup = startStream(targetPath, excluded)
     cleanupRef.current = cleanup
     return cleanup
+  }
+
+  function handleExcludeDir(dirName) {
+    const next = [...new Set([...excludedDirs, dirName])]
+    setExcludedDirs(next)
+    setPinned(null)
+    loadGraph(activeRoot ?? '', next)
   }
 
   useEffect(() => {
@@ -86,11 +96,28 @@ export default function ComplexityMap({ sharedRoot, onRootChange, lang = 'en', t
 
       <div ref={containerRef} className="cs-canvas" />
 
-      {(hovered ?? pinned) && <CCTooltip hovered={hovered ?? pinned} lang={lang} />}
+      {(hovered ?? pinned) && (
+        <CCTooltip
+          hovered={hovered ?? pinned}
+          lang={lang}
+          onExclude={handleExcludeDir}
+        />
+      )}
+      {excludedDirs.length > 0 && (
+        <ExcludedBadges
+          dirs={excludedDirs}
+          onRemove={dir => {
+            const next = excludedDirs.filter(d => d !== dir)
+            setExcludedDirs(next)
+            loadGraph(activeRoot ?? '', next)
+          }}
+        />
+      )}
       {status === 'ready' && <CCLegend />}
       {selectedFile && (
         <FileCodeView
           filePath={selectedFile}
+          preloadedComplexity={selectedFileAttrs}
           activeRoot={activeRoot}
           onClose={() => setSelectedFile(null)}
           lang={lang}
@@ -135,12 +162,20 @@ function CCHeader({ status, scanProgress, nodeCount, inputValue, activeRoot, lan
   )
 }
 
-function CCTooltip({ hovered }) {
+function CCTooltip({ hovered, onExclude }) {
+  const isDirLike = hovered.kind === 'dir' || hovered.kind === 'dir-empty' || hovered.kind === 'root'
+  const hasExclude = isDirLike && hovered.kind !== 'root'
   if (!hovered.hasCC) {
     return (
-      <div className="cs-tooltip">
+      <div className={`cs-tooltip${hasExclude ? ' cs-tooltip--interactive' : ''}`}>
         <div className="cs-tooltip__title">{hovered.label}</div>
         <div className="cs-tooltip__path">{hovered.key}</div>
+        {hasExclude && (
+          <button
+            className="cs-tooltip__exclude-btn"
+            onClick={() => onExclude(hovered.label)}
+          >⊘ Exclude directory</button>
+        )}
       </div>
     )
   }
@@ -195,6 +230,23 @@ function CCLegend() {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function ExcludedBadges({ dirs, onRemove }) {
+  return (
+    <div className="cs-excluded-badges">
+      {dirs.map(dir => (
+        <span key={dir} className="cs-excluded-badge">
+          <span className="cs-excluded-badge__name">⊘ {dir}</span>
+          <button
+            className="cs-excluded-badge__remove"
+            onClick={() => onRemove(dir)}
+            title="Remove exclusion"
+          >×</button>
+        </span>
+      ))}
     </div>
   )
 }

@@ -58,25 +58,24 @@ function initialNodeColor(a) {
  *   setActiveRoot:   (r: string) => void,
  *   setInputValue:   (v: string) => void,
  *   projectType?:    string,
+ *   excludedDirs?:   string[],
  * }} deps
- * @returns {(targetPath: string) => () => void}  startStream(path) → cleanup fn
+ * @returns {(targetPath: string, excluded?: string[]) => () => void}  startStream(path, excluded?) → cleanup fn
  */
 export function useCCStream({
   load, patchNodes, onRootChange,
   setStatus, setScanProgress, setActiveRoot, setInputValue,
   projectType = 'node',
+  excludedDirs = [],
 }) {
-  // Accumulates globalMax across batches so colors stay consistent
-  const accRef = { current: {} }   // rebuilt per startStream call — use closure instead
-  // We need per-call mutable state; useGraphStream's deps handle re-creation.
-
-  const startStream = useCallback((targetPath) => {
+  const startStream = useCallback((targetPath, excluded = excludedDirs) => {
     setStatus('loading')
     setScanProgress(null)
 
-    const url = targetPath
-      ? `${API_BASE}/api/ccgraph/stream?path=${encodeURIComponent(targetPath)}&type=${projectType}`
-      : `${API_BASE}/api/ccgraph/stream?type=${projectType}`
+    const params = new URLSearchParams({ type: projectType })
+    if (targetPath) params.set('path', targetPath)
+    if (excluded.length > 0) params.set('exclude', excluded.join(','))
+    const url = `${API_BASE}/api/ccgraph/stream?${params}`
 
     // Per-connection accumulator (lives only for this EventSource)
     const acc = {}           // key → cc attributes
